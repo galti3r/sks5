@@ -1038,12 +1038,127 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
-      - name: Notify Homebrew tap
+      - name: Update Homebrew tap
         if: success()
         continue-on-error: true
-        uses: peter-evans/repository-dispatch@v4
-        with:
-          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          repository: galti3r/homebrew-sks5
-          event-type: new-release
-          client-payload: '{"version": "${{ github.ref_name }}"}'
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+          URL="https://github.com/galti3r/sks5/archive/refs/tags/${TAG}.tar.gz"
+          SHA256=$(curl -sL "$URL" | sha256sum | cut -d' ' -f1)
+
+          echo "::group::Updating Homebrew tap for sks5 ${VERSION}"
+          echo "Tag: ${TAG}"
+          echo "SHA256: ${SHA256}"
+
+          # Clone with auth
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/galti3r/homebrew-sks5.git" /tmp/homebrew-sks5
+          cd /tmp/homebrew-sks5
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # --- Formula: create or update ---
+          mkdir -p Formula
+          if [ ! -f Formula/sks5.rb ]; then
+            echo "Bootstrap: creating Formula/sks5.rb"
+            cat > Formula/sks5.rb << 'FORMULA'
+          class Sks5 < Formula
+            desc "Lightweight SSH server with SOCKS5 proxy, shell emulation, and ACL"
+            homepage "https://github.com/galti3r/sks5"
+            url "URL_PLACEHOLDER"
+            sha256 "SHA_PLACEHOLDER"
+            license "MIT"
+            head "https://github.com/galti3r/sks5.git", branch: "main"
+
+            depends_on "rust" => :build
+
+            def install
+              system "cargo", "install", "--locked", "--root", prefix, "--path", "."
+              generate_completions_from_executable(bin/"sks5", "completions")
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/sks5 --version")
+            end
+          end
+          FORMULA
+          fi
+
+          # Update url + sha256 (works for both bootstrap and update)
+          sed -i "s|url \".*\"|url \"${URL}\"|" Formula/sks5.rb
+          sed -i "s|sha256 \".*\"|sha256 \"${SHA256}\"|" Formula/sks5.rb
+
+          # --- Fallback workflow: create if absent ---
+          if [ ! -f .github/workflows/update-formula.yml ]; then
+            echo "Bootstrap: creating .github/workflows/update-formula.yml"
+            mkdir -p .github/workflows
+            # Use DOLLARSIGN placeholder to avoid GitHub Actions evaluating
+            # ${{ }} expressions meant for the generated workflow file
+            cat > .github/workflows/update-formula.yml << 'WORKFLOW'
+          name: Update Formula
+
+          on:
+            repository_dispatch:
+              types: [new-release]
+            workflow_dispatch:
+              inputs:
+                version:
+                  description: "Release tag (e.g. v0.1.0)"
+                  required: true
+
+          jobs:
+            update:
+              runs-on: ubuntu-latest
+              steps:
+                - uses: actions/checkout@v6
+
+                - name: Resolve version
+                  id: ver
+                  run: |
+                    if [ "DOLLARSIGN{{ github.event_name }}" = "repository_dispatch" ]; then
+                      TAG="DOLLARSIGN{{ github.event.client_payload.version }}"
+                    else
+                      TAG="DOLLARSIGN{{ github.event.inputs.version }}"
+                    fi
+                    VERSION="${TAG#v}"
+                    URL="https://github.com/galti3r/sks5/archive/refs/tags/${TAG}.tar.gz"
+                    SHA256=$(curl -sL "$URL" | sha256sum | cut -d' ' -f1)
+                    echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+                    echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+                    echo "url=${URL}" >> "$GITHUB_OUTPUT"
+                    echo "sha256=${SHA256}" >> "$GITHUB_OUTPUT"
+
+                - name: Update formula
+                  run: |
+                    sed -i "s|url \".*\"|url \"DOLLARSIGN{{ steps.ver.outputs.url }}\"|" Formula/sks5.rb
+                    sed -i "s|sha256 \".*\"|sha256 \"DOLLARSIGN{{ steps.ver.outputs.sha256 }}\"|" Formula/sks5.rb
+
+                - name: Commit and push
+                  run: |
+                    git config user.name "github-actions[bot]"
+                    git config user.email "github-actions[bot]@users.noreply.github.com"
+                    git add Formula/sks5.rb
+                    git diff --cached --quiet && echo "No changes" && exit 0
+                    git commit -m "feat: update sks5 to DOLLARSIGN{{ steps.ver.outputs.version }}"
+                    git push
+          WORKFLOW
+            # Replace DOLLARSIGN{{ with ${{ in the generated file
+            D='$'
+            sed -i "s/DOLLARSIGN{{/${D}{{/g" .github/workflows/update-formula.yml
+          fi
+
+          # --- Commit + push (idempotent) ---
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to Homebrew tap"
+          else
+            git commit -m "feat: update sks5 to ${VERSION}"
+            git push
+            echo "Homebrew tap updated to ${VERSION}"
+          fi
+
+          echo "::endgroup::"
