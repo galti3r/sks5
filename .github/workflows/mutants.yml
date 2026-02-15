@@ -1,0 +1,55 @@
+name: Mutation Testing
+
+on:
+  schedule:
+    - cron: "0 3 * * 0"  # Weekly on Sunday at 03:00 UTC
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  mutants:
+    name: cargo-mutants
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-mutants
+        run: cargo install cargo-mutants
+
+      - name: Run mutation testing
+        run: cargo mutants --timeout 120
+
+      - name: Check mutation survival rate
+        if: always()
+        run: |
+          if [ -f mutants.out/caught.txt ] && [ -f mutants.out/survived.txt ]; then
+            CAUGHT=$(wc -l < mutants.out/caught.txt)
+            SURVIVED=$(wc -l < mutants.out/survived.txt)
+            TOTAL=$((CAUGHT + SURVIVED))
+            if [ "$TOTAL" -gt 0 ]; then
+              RATE=$((SURVIVED * 100 / TOTAL))
+              echo "Mutation results: $CAUGHT caught, $SURVIVED survived out of $TOTAL total ($RATE% survival rate)"
+              if [ "$RATE" -gt 20 ]; then
+                echo "::warning::Mutation survival rate is ${RATE}% (threshold: 20%). Review survived mutants for missing test coverage."
+                echo "Survived mutants:"
+                cat mutants.out/survived.txt
+              fi
+            else
+              echo "No mutants were generated."
+            fi
+          else
+            echo "::warning::Mutation testing output files not found. Check if cargo-mutants ran correctly."
+          fi
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mutants-results
+          path: mutants.out/

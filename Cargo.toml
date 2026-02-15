@@ -1,0 +1,309 @@
+[package]
+name = "sks5"
+version = "1.0.1"
+edition = "2021"
+description = "Lightweight SSH server with SOCKS5 proxy, shell emulation, and ACL"
+license = "MIT"
+rust-version = "1.88"
+repository = "https://github.com/galti3r/sks5"
+readme = "README.md"
+keywords = ["ssh", "socks5", "proxy", "firewall", "acl"]
+categories = ["command-line-utilities", "network-programming"]
+exclude = [".github/", ".forgejo/", ".gitlab-ci.yml", "scripts/", "tests/", "contrib/", "docs/", "PLAN-*.md", "PROGRESS-*.md"]
+
+[[bin]]
+name = "sks5"
+path = "src/main.rs"
+
+# ---------------------------------------------------------------------------
+# Unit tests — consolidated into a single binary for faster compilation
+# ---------------------------------------------------------------------------
+[[test]]
+name = "unit"
+path = "tests/unit/main.rs"
+
+# ---------------------------------------------------------------------------
+# E2E tests — each runs its own server instance, must be separate binaries
+# ---------------------------------------------------------------------------
+[[test]]
+name = "e2e_reload"
+path = "tests/e2e/reload_test.rs"
+
+[[test]]
+name = "e2e_socks5_server"
+path = "tests/e2e/socks5_server_test.rs"
+
+[[test]]
+name = "e2e_autoban"
+path = "tests/e2e/autoban_test.rs"
+
+[[test]]
+name = "e2e_metrics_server"
+path = "tests/e2e/metrics_server_test.rs"
+
+[[test]]
+name = "e2e_ssh_session"
+path = "tests/e2e/ssh_session_test.rs"
+
+[[test]]
+name = "e2e_audit_trail"
+path = "tests/e2e/audit_trail_test.rs"
+
+[[test]]
+name = "e2e_auth"
+path = "tests/e2e/auth_test.rs"
+
+[[test]]
+name = "e2e_shell"
+path = "tests/e2e/shell_test.rs"
+
+[[test]]
+name = "e2e_forwarding"
+path = "tests/e2e/forwarding_test.rs"
+
+[[test]]
+name = "e2e_rejection"
+path = "tests/e2e/rejection_test.rs"
+
+[[test]]
+name = "e2e_acl_fqdn"
+path = "tests/e2e/acl_fqdn_test.rs"
+
+[[test]]
+name = "e2e_acl_subnet"
+path = "tests/e2e/acl_subnet_test.rs"
+
+[[test]]
+name = "e2e_acl_combined"
+path = "tests/e2e/acl_combined_test.rs"
+
+[[test]]
+name = "e2e_acl_ipv6"
+path = "tests/e2e/acl_ipv6_test.rs"
+
+[[test]]
+name = "e2e_socks5_standalone"
+path = "tests/e2e/socks5_standalone_test.rs"
+
+[[test]]
+name = "e2e_api_dashboard"
+path = "tests/e2e/api_dashboard_test.rs"
+
+[[test]]
+name = "e2e_status"
+path = "tests/e2e/status_test.rs"
+
+[[test]]
+name = "e2e_webhook"
+path = "tests/e2e/webhook_test.rs"
+
+[[test]]
+name = "e2e_performance"
+path = "tests/e2e/performance_test.rs"
+
+[[test]]
+name = "e2e_webhook_retry"
+path = "tests/e2e/webhook_retry_test.rs"
+
+[[test]]
+name = "e2e_api_users_details"
+path = "tests/e2e/api_users_details_test.rs"
+
+[[test]]
+name = "e2e_socks5_timeout"
+path = "tests/e2e/socks5_timeout_test.rs"
+
+[[test]]
+name = "e2e_sse_ticket"
+path = "tests/e2e/sse_ticket_e2e_test.rs"
+
+[[test]]
+name = "e2e_shell_commands"
+path = "tests/e2e/shell_commands_test.rs"
+
+[[test]]
+name = "e2e_quota_api"
+path = "tests/e2e/quota_api_test.rs"
+
+[[test]]
+name = "e2e_api_audit_improvements"
+path = "tests/e2e/api_audit_improvements_test.rs"
+
+[[test]]
+name = "e2e_api_groups"
+path = "tests/e2e/api_groups_test.rs"
+
+[[test]]
+name = "e2e_api_sessions"
+path = "tests/e2e/api_sessions_test.rs"
+
+[[test]]
+name = "e2e_sse_payload"
+path = "tests/e2e/sse_payload_test.rs"
+
+[[test]]
+name = "e2e_ws"
+path = "tests/e2e/ws_test.rs"
+
+[[test]]
+name = "e2e_backup_restore"
+path = "tests/e2e/backup_restore_test.rs"
+
+[[test]]
+name = "e2e_cli"
+path = "tests/e2e/cli_e2e_test.rs"
+
+[[test]]
+name = "e2e_browser_dashboard"
+path = "tests/e2e/browser_dashboard_test.rs"
+
+[[test]]
+name = "e2e_upstream_proxy"
+path = "tests/e2e/upstream_proxy_test.rs"
+
+[[test]]
+name = "e2e_browser_screenshots"
+path = "tests/e2e/browser_screenshots.rs"
+
+[[test]]
+name = "e2e_wizard"
+path = "tests/e2e/wizard_test.rs"
+
+[dependencies]
+# SSH protocol
+russh = "0.57"
+
+# SSH certificate parsing and validation (transitive via russh, explicit for CA cert auth)
+ssh-key = { version = "0.6.7", features = ["ed25519", "rsa", "std"] }
+
+# Async runtime
+tokio = { version = "1.42.0", features = ["full"] }
+
+# CLI
+clap = { version = "4.5.58", features = ["derive", "env"] }
+clap_complete = "4.5"
+clap_mangen = "0.2"
+
+# Interactive prompts (wizard)
+dialoguer = "0.11"
+
+# Serialization / Config
+serde = { version = "1.0.216", features = ["derive"] }
+serde_json = "1.0.133"
+toml = "0.8.19"
+
+# Logging
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["json", "env-filter"] }
+
+# Password hashing
+argon2 = "0.5.3"
+password-hash = "0.5.0"
+
+# Networking / ACL
+ipnet = { version = "2.10.1", features = ["serde"] }
+
+# Error handling
+anyhow = "1.0.94"
+thiserror = "2.0.9"
+
+# Concurrency
+dashmap = "6.1.0"
+
+# Rate limiting
+governor = "0.7.0"
+
+# HTTP server (metrics + API)
+axum = { version = "0.7.9", features = ["ws"] }
+
+# Metrics
+prometheus-client = "0.24.0"
+
+# GeoIP
+maxminddb = "0.27.0"
+
+# HTTP client (webhooks)
+reqwest = { version = "0.12.12", default-features = false, features = ["rustls-tls", "json"] }
+
+# HMAC signatures / fingerprint
+hmac = "0.12.1"
+sha2 = "0.10.8"
+hex = "0.4.3"
+base64 = "0.22.1"
+
+# Constant-time comparison
+subtle = "2.6"
+
+# TOTP 2FA
+totp-rs = { version = "5.6", features = ["gen_secret", "otpauth"] }
+
+# URL validation
+url = "2.5"
+
+# URL percent-decoding (transitive via axum, explicit for auth middleware)
+percent-encoding = "2.3"
+
+# Zeroize sensitive data
+zeroize = { version = "1.8", features = ["derive"] }
+
+# Date/time
+chrono = { version = "0.4.39", features = ["serde"] }
+
+# Async cancellation
+tokio-util = "0.7"
+
+# Async streams (SSE)
+tokio-stream = "0.1"
+
+# TLS for SOCKS5 standalone
+tokio-rustls = "0.26"
+rustls-pemfile = "2"
+
+# DNS resolver with TTL support
+hickory-resolver = "0.25"
+
+# TCP socket options (keepalive, nodelay)
+socket2 = "0.6"
+
+# Proxy header (for PROXY protocol)
+proxy-header = "0.1.2"
+
+# Rand for HMAC ticket nonce
+rand = "0.8"
+
+# Correlation IDs
+uuid = { version = "1.0", features = ["v4"] }
+
+[dev-dependencies]
+tokio-test = "0.4.4"
+tempfile = "3.25.0"
+assert_cmd = "2.0.16"
+predicates = "3.1.2"
+proptest = "1.5.0"
+criterion = { version = "0.8", features = ["html_reports", "async_tokio"] }
+chromiumoxide = { version = "0.8", default-features = false, features = ["tokio-runtime"] }
+futures = "0.3"
+ed25519-dalek = { version = "2.1.1", features = ["rand_core"] }
+
+[[bench]]
+name = "acl_bench"
+harness = false
+
+[[bench]]
+name = "password_bench"
+harness = false
+
+[[bench]]
+name = "config_bench"
+harness = false
+
+[[bench]]
+name = "socks5_bench"
+harness = false
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

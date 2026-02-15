@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sks5 Dashboard</title>
+<style>
+  :root { --bg: #0f1117; --card: #1a1d28; --border: #2a2d3a; --text: #e1e4eb; --dim: #8b8fa3; --accent: #4f8cff; --green: #3dd68c; --red: #ff6b6b; --yellow: #ffd93d; }
+  :root.light { --bg: #f5f7fa; --card: #ffffff; --border: #e2e5ea; --text: #1a1d28; --dim: #6b7280; --accent: #3b82f6; --danger: #ef4444; --success: #22c55e; --warn: #eab308; --green: #22c55e; --red: #ef4444; --yellow: #eab308; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace; background: var(--bg); color: var(--text); min-height: 100vh; }
+  header { background: var(--card); border-bottom: 1px solid var(--border); padding: 1rem 2rem; display: flex; align-items: center; gap: 1rem; }
+  header h1 { font-size: 1.3rem; font-weight: 600; }
+  header .status { margin-left: auto; display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--dim); }
+  header .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+  header .dot.offline { background: var(--red); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; padding: 1.5rem 2rem; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1.2rem; }
+  .card h3 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--dim); margin-bottom: 0.5rem; }
+  .card .value { font-size: 2rem; font-weight: 700; }
+  .card .value.green { color: var(--green); }
+  .card .value.red { color: var(--red); }
+  .card .value.yellow { color: var(--yellow); }
+  .content { padding: 0 2rem 2rem; display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  @media (max-width: 900px) { .content { grid-template-columns: 1fr; } }
+  .panel { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1.2rem; }
+  .panel h2 { font-size: 0.9rem; margin-bottom: 0.8rem; display: flex; align-items: center; gap: 0.5rem; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+  th, td { padding: 0.4rem 0.6rem; text-align: left; border-bottom: 1px solid var(--border); }
+  th { color: var(--dim); font-weight: 500; text-transform: uppercase; font-size: 0.7rem; }
+  .log-area { height: 250px; overflow-y: auto; font-family: monospace; font-size: 0.75rem; line-height: 1.5; background: #12141d; border-radius: 4px; padding: 0.6rem; }
+  .log-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .log-line .ts { color: var(--dim); }
+  .log-line .evt { color: var(--accent); }
+  .btn { display: inline-block; padding: 0.4rem 0.8rem; border: 1px solid var(--border); border-radius: 4px; background: var(--card); color: var(--text); cursor: pointer; font-size: 0.8rem; transition: background 0.2s; }
+  .btn:hover { background: var(--border); }
+  .btn.danger { border-color: var(--red); color: var(--red); }
+  .btn.danger:hover { background: rgba(255,107,107,0.1); }
+  .btn.primary { border-color: var(--accent); color: var(--accent); }
+  .btn.primary:hover { background: rgba(79,140,255,0.1); }
+  .actions { display: flex; gap: 0.5rem; margin-top: 0.8rem; }
+  .badge { display: inline-block; padding: 0.15rem 0.4rem; border-radius: 3px; font-size: 0.7rem; }
+  .badge.on { background: rgba(61,214,140,0.15); color: var(--green); }
+  .badge.off { background: rgba(255,107,107,0.15); color: var(--red); }
+  .fullwidth { grid-column: 1 / -1; }
+  .theme-toggle { background: none; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; padding: 0.35rem 0.5rem; color: var(--text); font-size: 1.1rem; line-height: 1; display: flex; align-items: center; transition: background 0.2s; }
+  .theme-toggle:hover { background: var(--border); }
+  .conn-badge { display: inline-block; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.65rem; font-weight: 600; letter-spacing: 0.04em; margin-left: 0.3rem; }
+  .conn-badge.ws { background: rgba(61,214,140,0.15); color: var(--green); }
+  .conn-badge.sse { background: rgba(79,140,255,0.15); color: var(--accent); }
+  .conn-badge.poll { background: rgba(255,217,61,0.15); color: var(--yellow); }
+  :root.light .log-area { background: #e8eaf0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>sks5 Dashboard</h1>
+  <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle light/dark theme">&#9790;</button>
+  <div class="status">
+    <span class="dot" id="connDot"></span>
+    <span id="connStatus">Connecting...</span>
+    <span class="conn-badge" id="connTypeBadge" style="display:none"></span>
+  </div>
+</header>
+
+<div class="grid">
+  <div class="card"><h3>Active Connections</h3><div class="value green" id="activeConn">-</div></div>
+  <div class="card"><h3>Banned IPs</h3><div class="value red" id="bannedCount">-</div></div>
+  <div class="card"><h3>Total Users</h3><div class="value" id="totalUsers">-</div></div>
+  <div class="card"><h3>Uptime</h3><div class="value" id="uptime">-</div></div>
+</div>
+
+<div class="content">
+  <div class="panel">
+    <h2>Users</h2>
+    <table><thead><tr><th>Username</th><th>Forwarding</th><th>Shell</th><th>Active</th></tr></thead><tbody id="userTable"></tbody></table>
+  </div>
+
+  <div class="panel">
+    <h2>Banned IPs</h2>
+    <table><thead><tr><th>IP</th><th>Expires</th><th></th></tr></thead><tbody id="banTable"></tbody></table>
+    <div id="noBans" style="color:var(--dim);font-size:0.8rem;padding:0.5rem 0">No banned IPs</div>
+  </div>
+
+  <div class="panel">
+    <h2>Controls</h2>
+    <p style="font-size:0.8rem;color:var(--dim);margin-bottom:0.5rem">Maintenance mode: <span class="badge off" id="maintBadge">OFF</span></p>
+    <div class="actions">
+      <button class="btn primary" onclick="toggleMaint()">Toggle Maintenance</button>
+      <button class="btn primary" onclick="reloadConfig()">Reload Config</button>
+    </div>
+    <p id="actionMsg" style="font-size:0.75rem;margin-top:0.5rem;color:var(--dim)"></p>
+  </div>
+
+  <div class="panel">
+    <h2>Connection Info</h2>
+    <table><thead><tr><th>User</th><th>Active</th></tr></thead><tbody id="connTable"></tbody></table>
+    <div id="noConns" style="color:var(--dim);font-size:0.8rem;padding:0.5rem 0">No active connections</div>
+  </div>
+
+  <div class="panel">
+    <h2>Groups</h2>
+    <table><thead><tr><th>Group</th><th>Members</th><th>Active</th><th>Daily BW</th><th>Monthly BW</th></tr></thead><tbody id="groupTable"></tbody></table>
+    <div id="noGroups" style="color:var(--dim);font-size:0.8rem;padding:0.5rem 0">No groups</div>
+  </div>
+
+  <div class="panel fullwidth">
+    <h2>Active Sessions <span id="sessionCount" style="color:var(--dim);font-size:0.8rem;font-weight:400"></span></h2>
+    <table><thead><tr><th>ID</th><th>User</th><th>Target</th><th>Protocol</th><th>Up</th><th>Down</th><th>Duration</th></tr></thead><tbody id="sessionTable"></tbody></table>
+    <div id="noSessions" style="color:var(--dim);font-size:0.8rem;padding:0.5rem 0">No active sessions</div>
+  </div>
+
+  <div class="panel fullwidth">
+    <h2>Quota Usage</h2>
+    <table><thead><tr><th>User</th><th>Daily BW</th><th>Monthly BW</th><th>Total BW</th><th>Conns (day)</th><th>Rate</th></tr></thead><tbody id="quotaTable"></tbody></table>
+    <div id="noQuotas" style="color:var(--dim);font-size:0.8rem;padding:0.5rem 0">No quota data</div>
+  </div>
+
+  <div class="panel fullwidth">
+    <h2>Audit Log (live)</h2>
+    <div class="log-area" id="logArea"></div>
+  </div>
+</div>
+
+<script>
+const TOKEN = new URLSearchParams(window.location.search).get('token') || '';
+const BASE = window.location.origin;
+const headers = TOKEN ? {'Authorization': 'Bearer ' + TOKEN} : {};
+
+// --- Theme toggle ---
+function applyTheme(theme) {
+  if (theme === 'light') {
+    document.documentElement.classList.add('light');
+    document.getElementById('themeToggle').innerHTML = '&#9728;'; // sun
+  } else {
+    document.documentElement.classList.remove('light');
+    document.getElementById('themeToggle').innerHTML = '&#9790;'; // moon
+  }
+}
+function toggleTheme() {
+  const isLight = document.documentElement.classList.contains('light');
+  const next = isLight ? 'dark' : 'light';
+  localStorage.setItem('theme', next);
+  applyTheme(next);
+}
+(function initTheme() {
+  const saved = localStorage.getItem('theme');
+  if (saved) { applyTheme(saved); }
+  else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) { applyTheme('light'); }
+  else { applyTheme('dark'); }
+})();
+
+// --- Connection type indicator ---
+let connType = 'none'; // 'ws', 'sse', 'poll'
+function setConnType(type) {
+  connType = type;
+  const badge = document.getElementById('connTypeBadge');
+  badge.style.display = 'inline-block';
+  badge.textContent = type.toUpperCase();
+  badge.className = 'conn-badge ' + type;
+}
+
+function fmt(s) { return String(s).padStart(2, '0'); }
+function fmtUptime(secs) {
+  const d = Math.floor(secs/86400), h = Math.floor((secs%86400)/3600), m = Math.floor((secs%3600)/60), s2 = secs%60;
+  return d > 0 ? d+'d '+fmt(h)+'h' : h > 0 ? fmt(h)+'h '+fmt(m)+'m' : fmt(m)+'m '+fmt(s2)+'s';
+}
+function fmtBytes(b) {
+  if (b >= 1073741824) return (b/1073741824).toFixed(1)+' GB';
+  if (b >= 1048576) return (b/1048576).toFixed(1)+' MB';
+  if (b >= 1024) return (b/1024).toFixed(1)+' KB';
+  return b+' B';
+}
+function fmtRate(bps) {
+  const bits = bps * 8;
+  if (bits >= 1000000) return (bits/1000000).toFixed(1)+' Mbps';
+  if (bits >= 1000) return (bits/1000).toFixed(1)+' Kbps';
+  return bits+' bps';
+}
+
+function addLog(text) {
+  const el = document.getElementById('logArea');
+  const div = document.createElement('div');
+  div.className = 'log-line';
+  div.innerHTML = text;
+  el.appendChild(div);
+  if (el.children.length > 200) el.removeChild(el.firstChild);
+  el.scrollTop = el.scrollHeight;
+}
+
+function updateUI(data) {
+  document.getElementById('activeConn').textContent = data.active_connections ?? '-';
+  document.getElementById('bannedCount').textContent = data.banned_count ?? '-';
+  document.getElementById('totalUsers').textContent = data.total_users ?? '-';
+  document.getElementById('uptime').textContent = data.uptime_secs != null ? fmtUptime(data.uptime_secs) : '-';
+
+  const mb = document.getElementById('maintBadge');
+  if (data.maintenance) { mb.textContent = 'ON'; mb.className = 'badge on'; }
+  else { mb.textContent = 'OFF'; mb.className = 'badge off'; }
+
+  // Users
+  if (data.users) {
+    const conns = data.connections || {};
+    const tb = document.getElementById('userTable');
+    tb.innerHTML = data.users.map(u => '<tr><td>'+u.username+'</td><td>'+(u.allow_forwarding?'Yes':'No')+'</td><td>'+(u.allow_shell?'Yes':'No')+'</td><td>'+(conns[u.username]||0)+'</td></tr>').join('');
+  }
+
+  // Bans
+  if (data.bans != null) {
+    const bt = document.getElementById('banTable');
+    const nb = document.getElementById('noBans');
+    if (data.bans.length === 0) { bt.innerHTML = ''; nb.style.display = 'block'; }
+    else {
+      nb.style.display = 'none';
+      bt.innerHTML = data.bans.map(b => '<tr><td>'+b.ip+'</td><td>'+(b.expires_at||'permanent')+'</td><td><button class="btn danger" onclick="unban(\''+b.ip+'\')">Unban</button></td></tr>').join('');
+    }
+  }
+
+  // Connections
+  if (data.connections) {
+    const ct = document.getElementById('connTable');
+    const nc = document.getElementById('noConns');
+    const entries = Object.entries(data.connections);
+    if (entries.length === 0) { ct.innerHTML = ''; nc.style.display = 'block'; }
+    else {
+      nc.style.display = 'none';
+      ct.innerHTML = entries.map(([u,c]) => '<tr><td>'+u+'</td><td>'+c+'</td></tr>').join('');
+    }
+  }
+
+  // Groups
+  if (data.groups != null) {
+    const gt = document.getElementById('groupTable');
+    const ng = document.getElementById('noGroups');
+    if (data.groups.length === 0) { gt.innerHTML = ''; ng.style.display = 'block'; }
+    else {
+      ng.style.display = 'none';
+      gt.innerHTML = data.groups.map(g => '<tr><td>'+g.name+'</td><td>'+g.member_count+'</td><td>'+g.active_connections+'</td><td>'+fmtBytes(g.total_daily_bytes)+'</td><td>'+fmtBytes(g.total_monthly_bytes)+'</td></tr>').join('');
+    }
+  }
+
+  // Sessions
+  if (data.sessions != null) {
+    const st = document.getElementById('sessionTable');
+    const ns = document.getElementById('noSessions');
+    const sc = document.getElementById('sessionCount');
+    const list = data.sessions.sessions || [];
+    sc.textContent = '(' + (data.sessions.total_active || 0) + ')';
+    if (list.length === 0) { st.innerHTML = ''; ns.style.display = 'block'; }
+    else {
+      ns.style.display = 'none';
+      st.innerHTML = list.map(s => '<tr><td>'+s.session_id+'</td><td>'+s.username+'</td><td>'+s.target_host+':'+s.target_port+'</td><td>'+s.protocol+'</td><td>'+fmtBytes(s.bytes_up)+'</td><td>'+fmtBytes(s.bytes_down)+'</td><td>'+fmtUptime(s.duration_secs)+'</td></tr>').join('');
+    }
+  }
+
+  // Quotas
+  if (data.quotas != null) {
+    const qt = document.getElementById('quotaTable');
+    const nq = document.getElementById('noQuotas');
+    if (data.quotas.length === 0) { qt.innerHTML = ''; nq.style.display = 'block'; }
+    else {
+      nq.style.display = 'none';
+      qt.innerHTML = data.quotas.map(q => '<tr><td>'+q.username+'</td><td>'+fmtBytes(q.daily_bytes)+'</td><td>'+fmtBytes(q.monthly_bytes)+'</td><td>'+fmtBytes(q.total_bytes)+'</td><td>'+q.daily_connections+'</td><td>'+fmtRate(q.current_rate_bps)+'</td></tr>').join('');
+    }
+  }
+
+  // Audit events
+  if (data.recent_events) {
+    data.recent_events.forEach(e => {
+      const ts = e.timestamp ? '<span class="ts">'+e.timestamp.substring(11,19)+'</span> ' : '';
+      const evt = '<span class="evt">'+(e.event_type||'unknown')+'</span> ';
+      const detail = e.username ? e.username+' ' : '';
+      addLog(ts + evt + detail + (e.source_ip||'') + (e.target_host ? ' -> '+e.target_host+':'+e.target_port : ''));
+    });
+  }
+}
+
+// --- WebSocket connection ---
+let ws = null;
+let wsConnected = false;
+
+async function getWsUrl() {
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const base = proto + '//' + window.location.host;
+  if (TOKEN) {
+    // Get a short-lived HMAC ticket via Bearer auth, then connect WS with ?ticket=
+    try {
+      const res = await fetch(BASE + '/api/sse-ticket', {method: 'POST', headers});
+      if (res.ok) {
+        const json = await res.json();
+        const ticket = json.data ? json.data.ticket : json.ticket;
+        return base + '/api/ws?ticket=' + encodeURIComponent(ticket);
+      }
+    } catch(e) { /* fall through */ }
+  }
+  // No token or ticket negotiation failed — attempt unauthenticated (will fail if auth required)
+  return base + '/api/ws';
+}
+
+async function connectWS() {
+  try {
+    const url = await getWsUrl();
+    ws = new WebSocket(url);
+
+    ws.onopen = () => {
+      wsConnected = true;
+      document.getElementById('connDot').className = 'dot';
+      document.getElementById('connStatus').textContent = 'Connected';
+      setConnType('ws');
+    };
+
+    ws.onmessage = (e) => {
+      try { updateUI(JSON.parse(e.data)); } catch(err) { console.error('WS parse error:', err); }
+    };
+
+    ws.onclose = () => {
+      const wasConnected = wsConnected;
+      wsConnected = false;
+      ws = null;
+      document.getElementById('connDot').className = 'dot offline';
+      document.getElementById('connStatus').textContent = 'Disconnected';
+      if (wasConnected) {
+        // Was connected via WS, try to reconnect WS first then fall back
+        setTimeout(connectWS, 3000);
+      } else {
+        // WS never connected, fall back to SSE
+        connectSSE();
+      }
+    };
+
+    ws.onerror = () => {
+      // onerror is always followed by onclose, so we handle fallback there
+    };
+  } catch(e) {
+    // WebSocket constructor failed, fall back to SSE
+    connectSSE();
+  }
+}
+
+// --- SSE connection with ticket-based auth (fallback) ---
+let evtSource;
+async function connectSSE() {
+  let url;
+  if (TOKEN) {
+    // Get a short-lived HMAC ticket via Bearer auth, then connect SSE with ?ticket=
+    try {
+      const res = await fetch(BASE + '/api/sse-ticket', {method: 'POST', headers});
+      if (res.ok) {
+        const json = await res.json();
+        const ticket = json.data ? json.data.ticket : json.ticket;
+        url = BASE + '/api/events?ticket=' + encodeURIComponent(ticket);
+      }
+    } catch(e) { /* fall through */ }
+  }
+  if (!url) {
+    url = BASE + '/api/events';
+  }
+  evtSource = new EventSource(url);
+  evtSource.onopen = () => {
+    document.getElementById('connDot').className = 'dot';
+    document.getElementById('connStatus').textContent = 'Connected';
+    setConnType('sse');
+  };
+  evtSource.onmessage = (e) => {
+    try { updateUI(JSON.parse(e.data)); } catch(err) { console.error(err); }
+  };
+  evtSource.onerror = () => {
+    document.getElementById('connDot').className = 'dot offline';
+    document.getElementById('connStatus').textContent = 'Disconnected';
+    evtSource.close();
+    setTimeout(connectSSE, 3000);
+  };
+}
+
+// --- Fallback polling if SSE not available ---
+async function poll() {
+  try {
+    const [status, users, bans, conns] = await Promise.all([
+      fetch(BASE+'/api/status', {headers}).then(r=>r.json()),
+      fetch(BASE+'/api/users', {headers}).then(r=>r.json()),
+      fetch(BASE+'/api/bans', {headers}).then(r=>r.json()),
+      fetch(BASE+'/api/connections', {headers}).then(r=>r.json()),
+    ]);
+    updateUI({...status, users: users.users||users, bans: bans.bans||bans, connections: conns.connections||conns});
+    document.getElementById('connDot').className = 'dot';
+    document.getElementById('connStatus').textContent = 'Polling';
+    setConnType('poll');
+  } catch(e) {
+    document.getElementById('connDot').className = 'dot offline';
+    document.getElementById('connStatus').textContent = 'Error';
+  }
+}
+
+// --- Send command via WebSocket if connected, otherwise use REST ---
+function wsSend(payload) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(payload));
+    return true;
+  }
+  return false;
+}
+
+async function toggleMaint() {
+  try {
+    if (wsSend({action: 'maintenance', enabled: true})) {
+      document.getElementById('actionMsg').textContent = 'Maintenance toggle sent via WS';
+    } else {
+      const r = await fetch(BASE+'/api/maintenance', {method:'POST', headers});
+      const d = await r.json();
+      document.getElementById('actionMsg').textContent = 'Maintenance: ' + (d.maintenance?'ON':'OFF');
+    }
+  } catch(e) { document.getElementById('actionMsg').textContent = 'Error: '+e.message; }
+}
+
+async function reloadConfig() {
+  try {
+    const r = await fetch(BASE+'/api/reload', {method:'POST', headers});
+    const d = await r.json();
+    document.getElementById('actionMsg').textContent = d.success ? 'Reloaded ('+d.users_count+' users)' : 'Error: '+d.error;
+  } catch(e) { document.getElementById('actionMsg').textContent = 'Error: '+e.message; }
+}
+
+async function unban(ip) {
+  try {
+    if (wsSend({action: 'unban', ip: ip})) {
+      document.getElementById('actionMsg').textContent = 'Unban request sent via WS for '+ip;
+    } else {
+      await fetch(BASE+'/api/bans/'+ip, {method:'DELETE', headers});
+      document.getElementById('actionMsg').textContent = 'Unbanned '+ip;
+    }
+  } catch(e) { document.getElementById('actionMsg').textContent = 'Error: '+e.message; }
+}
+
+async function kick(username) {
+  try {
+    if (wsSend({action: 'kick', username: username})) {
+      document.getElementById('actionMsg').textContent = 'Kick request sent via WS for '+username;
+    } else {
+      await fetch(BASE+'/api/connections/'+username, {method:'DELETE', headers});
+      document.getElementById('actionMsg').textContent = 'Kicked '+username;
+    }
+  } catch(e) { document.getElementById('actionMsg').textContent = 'Error: '+e.message; }
+}
+
+// --- Start connection: try WS first, then SSE, then polling ---
+connectWS();
+setTimeout(() => {
+  if (!wsConnected && (!evtSource || evtSource.readyState === 2)) {
+    poll();
+    setInterval(poll, 3000);
+  }
+}, 5000);
+</script>
+</body>
+</html>

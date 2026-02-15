@@ -1,0 +1,5 @@
+# Base image (debian:12-slim) vulnerabilities with no available fix
+# zlib: integer overflow in zipOpenNewFileInZip4_6 — Debian marks as will_not_fix
+CVE-2023-45853
+# glibc: integer overflow in memalign — no fix available yet
+CVE-2026-0861

@@ -1,0 +1,22 @@
+# hadolint configuration for sks5
+# https://github.com/hadolint/hadolint
+#
+# Run: hadolint Containerfile
+# Install: https://github.com/hadolint/hadolint#install
+
+failure-threshold: warning
+
+trustedRegistries:
+  - docker.io
+  - gcr.io
+  - ghcr.io
+
+ignored:
+  # Build deps are ephemeral in multi-stage builds, pinning not required
+  - DL3008
+  # Alpine apk packages — pinning not required in multi-stage builds
+  - DL3018
+  # scratch containers have no default user
+  - DL3002
+  # Using latest tag is acceptable for CA cert extraction stage
+  - DL3007

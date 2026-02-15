@@ -1,0 +1,17 @@
+# Test client image for sks5 E2E tests
+# Contains SSH client tools for testing against sks5 server
+FROM debian:bookworm-slim
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        openssh-client \
+        sshpass \
+        curl \
+        netcat-openbsd \
+        bash \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY ../scripts/run-e2e-in-container.sh /tests/run-e2e-in-container.sh
+RUN chmod +x /tests/run-e2e-in-container.sh
+
+ENTRYPOINT ["/bin/bash"]

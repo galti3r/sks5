@@ -1,0 +1,43 @@
+# Dependabot configuration
+# https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+updates:
+  # Rust (Cargo) dependencies
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "chore(deps):"
+    labels:
+      - "dependencies"
+      - "rust"
+    open-pull-requests-limit: 10
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "ci(deps):"
+    labels:
+      - "dependencies"
+      - "ci"
+    open-pull-requests-limit: 5
+
+  # Docker (Containerfile updates)
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "chore(docker):"
+    labels:
+      - "dependencies"
+      - "docker"
+    open-pull-requests-limit: 5

@@ -1,0 +1,8 @@
+# cargo-audit configuration
+# https://github.com/rustsec/rustsec/tree/main/cargo-audit
+
+[advisories]
+ignore = [
+    # rsa crate Marvin Attack — no fix available, transitive via russh-keys/ssh-key
+    "RUSTSEC-2023-0071",
+]

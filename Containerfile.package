@@ -1,0 +1,72 @@
+# Multi-architecture Docker image from pre-built static musl binaries
+# No Rust compilation — packages binaries produced by the CI build job (cross).
+#
+# Usage (CI):
+#   docker buildx build --platform linux/amd64,linux/arm64 \
+#     -f Containerfile.package --target minimal .
+#
+# Build context must contain:
+#   binaries/amd64/sks5   (static musl x86_64 binary)
+#   binaries/arm64/sks5   (static musl aarch64 binary)
+#
+# For local builds that compile from source, use Containerfile or Containerfile.cross instead.
+#
+# Targets:
+#   minimal (default) — scratch-based, ~5 MB
+#   alpine            — Alpine-based, ~12 MB, has shell for debugging
+
+# --- CA certs (no QEMU needed — runs on build platform) ---
+FROM --platform=$BUILDPLATFORM alpine:3.21 AS certs
+RUN apk add --no-cache ca-certificates
+
+# --- Target: minimal (scratch) — DEFAULT ---
+FROM scratch AS minimal
+
+ARG TARGETARCH
+
+LABEL org.opencontainers.image.title="sks5" \
+      org.opencontainers.image.description="Lightweight SSH server with SOCKS5 proxy" \
+      org.opencontainers.image.source="https://github.com/galti3r/sks5" \
+      org.opencontainers.image.licenses="MIT"
+
+COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY binaries/${TARGETARCH}/sks5 /sks5
+
+EXPOSE 2222 1080 9090 9091
+
+USER 65534
+
+ENTRYPOINT ["/sks5"]
+CMD ["--config", "/etc/sks5/config.toml"]
+
+# --- Target: alpine ---
+FROM alpine:3.21 AS alpine
+
+ARG TARGETARCH
+
+LABEL org.opencontainers.image.title="sks5" \
+      org.opencontainers.image.description="Lightweight SSH server with SOCKS5 proxy" \
+      org.opencontainers.image.source="https://github.com/galti3r/sks5" \
+      org.opencontainers.image.licenses="MIT"
+
+RUN apk add --no-cache ca-certificates && \
+    adduser -D -u 1000 sks5 && \
+    mkdir -p /etc/sks5 /var/log/sks5 && \
+    chown sks5:sks5 /etc/sks5 /var/log/sks5
+
+COPY binaries/${TARGETARCH}/sks5 /usr/local/bin/sks5
+
+USER sks5
+WORKDIR /etc/sks5
+
+EXPOSE 2222 1080 9090 9091
+
+VOLUME ["/etc/sks5"]
+
+STOPSIGNAL SIGTERM
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD ["sks5", "health-check", "--addr", "127.0.0.1:2222", "--timeout", "3"]
+
+ENTRYPOINT ["sks5"]
+CMD ["--config", "/etc/sks5/config.toml"]

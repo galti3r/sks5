@@ -1,0 +1,58 @@
+# Build artifacts
+target/
+
+# Version control
+.git/
+.gitignore
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Tests
+tests/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# CI/CD
+.github/
+
+# Scripts (not needed in container)
+scripts/
+
+# Container files (avoid recursive includes)
+Containerfile*
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Secrets / local config
+.env
+*.pem
+*.key
+config.toml
+
+# Coverage / profiling
+lcov.info
+*.profraw
+tarpaulin-report.html
+
+# Allow pre-built binaries for Containerfile.package
+!binaries/
+
+# AI assistants / plans
+.claude/
+CLAUDE.md
+.cursorrules
+.cursor/
+.aider*
+PLAN-*.md
+PLAN*.md
+PROGRESS-*.md
+PROGRESS*.md

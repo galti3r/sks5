@@ -1,0 +1,288 @@
+# GitLab CI/CD pipeline for sks5
+# https://docs.gitlab.com/ee/ci/
+
+variables:
+  CARGO_HOME: "${CI_PROJECT_DIR}/.cargo"
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+  RUST_IMAGE: "rust:1.83-slim-bookworm"
+
+# Cache cargo registry and build artifacts
+cache: &cargo-cache
+  key: "${CI_COMMIT_REF_SLUG}"
+  paths:
+    - .cargo/registry
+    - .cargo/git
+    - target/
+  policy: pull-push
+
+stages:
+  - lint
+  - test
+  - security
+  - benchmark
+  - build
+  - docker
+
+# =============================================================================
+# Lint
+# =============================================================================
+fmt:
+  stage: lint
+  image: ${RUST_IMAGE}
+  cache:
+    <<: *cargo-cache
+    policy: pull
+  script:
+    - rustup component add rustfmt
+    - cargo fmt --all -- --check
+
+clippy:
+  stage: lint
+  image: ${RUST_IMAGE}
+  script:
+    - rustup component add clippy
+    - cargo clippy --all-targets -- -D warnings
+
+hadolint:
+  stage: lint
+  image:
+    name: hadolint/hadolint:latest-debian
+    entrypoint: [""]
+  script:
+    - hadolint Containerfile
+    - hadolint Containerfile.cross
+  allow_failure: true
+
+# =============================================================================
+# Test
+# =============================================================================
+test:
+  stage: test
+  image: ${RUST_IMAGE}
+  script:
+    - cargo test --all-targets
+  artifacts:
+    when: always
+    reports:
+      junit: target/test-results.xml
+
+coverage:
+  stage: test
+  image: ${RUST_IMAGE}
+  before_script:
+    - cargo install cargo-tarpaulin
+  script:
+    - cargo tarpaulin --all-targets --out xml --out html --output-dir coverage/
+  artifacts:
+    paths:
+      - coverage/
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage/cobertura.xml
+  coverage: '/^\d+\.\d+% coverage/'
+
+# =============================================================================
+# Security
+# =============================================================================
+cargo-audit:
+  stage: security
+  image: ${RUST_IMAGE}
+  before_script:
+    - cargo install cargo-audit
+  script:
+    - cargo audit
+  allow_failure: true
+
+cargo-deny:
+  stage: security
+  image: ${RUST_IMAGE}
+  before_script:
+    - cargo install cargo-deny
+  script:
+    - cargo deny check
+  allow_failure: true
+
+# =============================================================================
+# E2E Browser: headless Chrome via Podman
+# NOTE: Runs in a privileged container so Podman can launch Chrome Headless.
+# =============================================================================
+e2e-browser:
+  stage: test
+  image: ${RUST_IMAGE}
+  tags:
+    - privileged
+  variables:
+    # Podman rootless needs storage driver compatible with container environments
+    STORAGE_DRIVER: vfs
+  before_script:
+    # Install Podman and dependencies on Debian Bookworm
+    - apt-get update -qq
+    - apt-get install -y -qq podman slirp4netns fuse-overlayfs uidmap >/dev/null 2>&1
+    - podman --version
+    # Pull Chrome image ahead of tests
+    - podman pull docker.io/chromedp/headless-shell:latest
+  script:
+    - cargo test --test e2e_browser_dashboard -- --ignored --nocapture
+  after_script:
+    - podman ps -aq --filter name=sks5-chrome | xargs -r podman rm -f 2>/dev/null || true
+    - podman image rm docker.io/chromedp/headless-shell:latest 2>/dev/null || true
+
+# =============================================================================
+# Benchmark: criterion performance regression detection
+# =============================================================================
+benchmark:
+  stage: benchmark
+  image: ${RUST_IMAGE}
+  needs:
+    - test
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_MERGE_REQUEST_IID'
+  script:
+    - cargo bench --all -- --output-format bencher | tee bench-output.txt
+    # Parse results and check for regressions against previous run
+    - |
+      if [ -f bench-baseline.txt ]; then
+        echo "Comparing against previous baseline..."
+        python3 -c "
+      import re, sys
+      def parse_bench(path):
+          results = {}
+          with open(path) as f:
+              for line in f:
+                  m = re.match(r'test (\S+)\s+\.\.\. bench:\s+([\d,]+) ns/iter', line)
+                  if m:
+                      name = m.group(1)
+                      ns = int(m.group(2).replace(',', ''))
+                      results[name] = ns
+          return results
+      try:
+          baseline = parse_bench('bench-baseline.txt')
+          current = parse_bench('bench-output.txt')
+          regressions = []
+          for name, cur_ns in current.items():
+              if name in baseline:
+                  base_ns = baseline[name]
+                  change = ((cur_ns - base_ns) / base_ns) * 100
+                  status = 'REGRESSION' if change > 10 else 'ok'
+                  if change > 10:
+                      regressions.append((name, change))
+                  print(f'{name}: {base_ns} -> {cur_ns} ns/iter ({change:+.1f}%) [{status}]')
+          if regressions:
+              print(f'\nERROR: {len(regressions)} benchmark(s) regressed by more than 10%:')
+              for name, change in regressions:
+                  print(f'  - {name}: +{change:.1f}%')
+              sys.exit(1)
+          else:
+              print('\nAll benchmarks within 10% threshold.')
+      except Exception as e:
+          print(f'Warning: could not compare benchmarks: {e}')
+      " || exit 1
+      else
+        echo "No previous baseline found — storing current results as baseline."
+      fi
+    # Current results become the next baseline
+    - cp bench-output.txt bench-baseline.txt
+  artifacts:
+    paths:
+      - bench-output.txt
+      - bench-baseline.txt
+    expire_in: 30 days
+    reports:
+      metrics: bench-output.txt
+  cache:
+    <<: *cargo-cache
+    key: "${CI_COMMIT_REF_SLUG}-bench"
+    paths:
+      - .cargo/registry
+      - .cargo/git
+      - target/
+      - bench-baseline.txt
+
+# =============================================================================
+# Build
+# =============================================================================
+build-release:
+  stage: build
+  image: ${RUST_IMAGE}
+  script:
+    - apt-get update && apt-get install -y gcc-aarch64-linux-gnu
+    - rustup target add aarch64-unknown-linux-gnu
+    - cargo build --release
+    - cargo build --release --target aarch64-unknown-linux-gnu
+    - strip target/release/sks5
+    - aarch64-linux-gnu-strip target/aarch64-unknown-linux-gnu/release/sks5
+  artifacts:
+    paths:
+      - target/release/sks5
+      - target/aarch64-unknown-linux-gnu/release/sks5
+    expire_in: 7 days
+
+# =============================================================================
+# Docker: multi-arch build + push to GitLab Container Registry
+# =============================================================================
+docker-build:
+  stage: docker
+  image: docker:27
+  services:
+    - docker:27-dind
+  needs:
+    - test
+    - clippy
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_COMMIT_TAG =~ /^v\d+/'
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    # Setup buildx for multi-arch builds
+    - docker buildx create --use --name multiarch-builder --driver docker-container --bootstrap
+    - docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+  script:
+    - |
+      if [ -n "$CI_COMMIT_TAG" ]; then
+        TAG="$CI_COMMIT_TAG"
+      else
+        TAG="$CI_COMMIT_SHORT_SHA"
+      fi
+    - |
+      docker buildx build \
+        --platform linux/amd64,linux/arm64 \
+        -f Containerfile.cross \
+        -t "$CI_REGISTRY_IMAGE:$TAG" \
+        -t "$CI_REGISTRY_IMAGE:latest" \
+        --push \
+        .
+
+trivy-scan:
+  stage: docker
+  image:
+    name: aquasec/trivy:latest
+    entrypoint: [""]
+  needs:
+    - docker-build
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_COMMIT_TAG =~ /^v\d+/'
+  script:
+    - trivy image --exit-code 1 --severity CRITICAL,HIGH "$CI_REGISTRY_IMAGE:latest"
+  allow_failure: true
+
+# =============================================================================
+# Pages: coverage report
+# =============================================================================
+pages:
+  stage: docker
+  needs:
+    - coverage
+  script:
+    - mkdir -p public
+    - cp -r coverage/* public/ || true
+  artifacts:
+    paths:
+      - public
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'

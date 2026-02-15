@@ -1,0 +1,41 @@
+# Build artifacts
+/target
+
+# Editor / IDE
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Secrets / local config
+.env
+*.pem
+*.key
+host_key
+host_key.pub
+*.mmdb
+/config.toml
+
+# AI assistants
+.claude/
+CLAUDE.md
+.cursorrules
+.cursor/
+copilot-*.md
+.github/copilot-*.md
+.aider*
+
+# Plans / progress tracking
+PLAN-*.md
+PLAN*.md
+PROGRESS-*.md
+PROGRESS*.md
+
+# Coverage / profiling
+lcov.info
+*.profraw
+tarpaulin-report.html
+
+# Pre-built binaries for Containerfile.package (downloaded by CI)
+binaries/
