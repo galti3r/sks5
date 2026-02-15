@@ -867,7 +867,7 @@ jobs:
           name: ${{ matrix.archive }}
 
       - name: Generate SLSA provenance attestation
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v3
         with:
           subject-path: ${{ matrix.archive }}
 
