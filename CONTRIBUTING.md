@@ -3,7 +3,7 @@
 ## Getting Started
 
 1. Clone the repository
-2. Install Rust 1.75+ (MSRV) -- Rust 1.83 recommended
+2. Install Rust 1.88+ (MSRV)
 3. Build and run tests:
    ```bash
    cargo build
