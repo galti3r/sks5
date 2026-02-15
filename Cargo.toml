@@ -214,7 +214,7 @@ dashmap = "6.1.0"
 governor = "0.10.4"
 
 # HTTP server (metrics + API)
-axum = { version = "0.7.9", features = ["ws"] }
+axum = { version = "0.8.8", features = ["ws"] }
 
 # Metrics
 prometheus-client = "0.24.0"
