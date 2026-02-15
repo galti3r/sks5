@@ -185,7 +185,7 @@ clap_complete = "4.5"
 clap_mangen = "0.2"
 
 # Interactive prompts (wizard)
-dialoguer = "0.11"
+dialoguer = "0.12"
 
 # Serialization / Config
 serde = { version = "1.0.216", features = ["derive"] }
@@ -211,7 +211,7 @@ thiserror = "2.0.9"
 dashmap = "6.1.0"
 
 # Rate limiting
-governor = "0.7.0"
+governor = "0.10.4"
 
 # HTTP server (metrics + API)
 axum = { version = "0.7.9", features = ["ws"] }
@@ -220,7 +220,7 @@ axum = { version = "0.7.9", features = ["ws"] }
 prometheus-client = "0.24.0"
 
 # GeoIP
-maxminddb = "0.27.0"
+maxminddb = "0.27.2"
 
 # HTTP client (webhooks)
 reqwest = { version = "0.12.12", default-features = false, features = ["rustls-tls", "json"] }
