@@ -1,0 +1,6 @@
+[server]
+ssh_listen = "0.0.0.0:2222"
+
+[[users]]
+username = "test"
+password_hash = "hash"

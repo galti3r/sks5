@@ -1,0 +1,42 @@
+# Convenience alias for local Alpine builds
+# For CI multi-arch builds, use: Containerfile.cross --target alpine
+#
+# Compatible with both Podman and Docker
+FROM rust:1.88-alpine AS builder
+
+RUN apk add --no-cache musl-dev
+WORKDIR /build
+COPY Cargo.toml Cargo.lock* ./
+COPY src/ src/
+COPY assets/ assets/
+COPY benches/ benches/
+RUN cargo build --release && strip target/release/sks5
+
+FROM alpine:3.21
+
+LABEL org.opencontainers.image.title="sks5" \
+      org.opencontainers.image.description="Lightweight SSH server with SOCKS5 proxy" \
+      org.opencontainers.image.source="https://github.com/galti3r/sks5" \
+      org.opencontainers.image.licenses="MIT"
+
+RUN apk add --no-cache ca-certificates && \
+    adduser -D -u 1000 sks5 && \
+    mkdir -p /etc/sks5 /var/log/sks5 && \
+    chown sks5:sks5 /etc/sks5 /var/log/sks5
+
+COPY --from=builder /build/target/release/sks5 /usr/local/bin/sks5
+
+USER sks5
+WORKDIR /etc/sks5
+
+EXPOSE 2222 1080 9090 9091
+
+VOLUME ["/etc/sks5"]
+
+STOPSIGNAL SIGTERM
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD ["sks5", "health-check", "--addr", "127.0.0.1:2222", "--timeout", "3"]
+
+ENTRYPOINT ["sks5"]
+CMD ["--config", "/etc/sks5/config.toml"]

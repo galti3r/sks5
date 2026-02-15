@@ -1,0 +1,1049 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*", "beta-*"]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  RUST_TOOLCHAIN: "stable"
+
+# Tags cancel main if in progress, but main never cancels tags
+# Tags have priority as they represent releases
+concurrency:
+  group: CI
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/tags/') }}
+
+# Minimal top-level permissions — jobs override as needed
+permissions:
+  contents: read
+
+jobs:
+  # ===========================================================================
+  # Detect changed paths to skip unnecessary jobs
+  # For tags, all outputs are forced to 'true' (always run everything)
+  # ===========================================================================
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ startsWith(github.ref, 'refs/tags/') || steps.filter.outputs.rust }}
+      ci: ${{ startsWith(github.ref, 'refs/tags/') || steps.filter.outputs.ci }}
+      demo: ${{ startsWith(github.ref, 'refs/tags/') || steps.filter.outputs.demo }}
+      docker: ${{ startsWith(github.ref, 'refs/tags/') || steps.filter.outputs.docker }}
+      docs: ${{ startsWith(github.ref, 'refs/tags/') || steps.filter.outputs.docs }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dorny/paths-filter@v3
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        id: filter
+        with:
+          filters: |
+            rust:
+              - 'src/**'
+              - 'tests/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'benches/**'
+              - 'deny.toml'
+              - '.cargo/**'
+              - 'assets/**'
+            ci:
+              - '.github/workflows/**'
+            demo:
+              - 'contrib/demo.tape'
+            docker:
+              - 'Containerfile'
+              - 'Containerfile.cross'
+              - 'Containerfile.alpine'
+              - 'Containerfile.package'
+            docs:
+              - '*.md'
+              - 'docs/**'
+              - 'LICENSE'
+
+  # ===========================================================================
+  # Lint: fmt + clippy + hadolint + commitlint
+  # Runs on: main/PR (if changed), all tags (always)
+  # ===========================================================================
+  lint:
+    name: Lint
+    needs: changes
+    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.ci == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust ${{ env.RUST_TOOLCHAIN }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-unified-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-unified-
+
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Install commitlint
+        if: github.event_name == 'pull_request'
+        run: npm install -g @commitlint/cli @commitlint/config-conventional
+
+      - name: Validate commits
+        if: github.event_name == 'pull_request'
+        run: npx commitlint --from ${{ github.event.pull_request.base.sha }} --to HEAD
+
+  # ===========================================================================
+  # Docker Lint: Hadolint on Containerfiles
+  # Runs on: main/PR (if changed), skipped on tags
+  # ===========================================================================
+  docker-lint:
+    name: Docker Lint
+    needs: changes
+    if: needs.changes.outputs.docker == 'true' || needs.changes.outputs.ci == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Hadolint (Containerfile)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Containerfile
+
+      - name: Hadolint (Containerfile.cross)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Containerfile.cross
+
+      - name: Hadolint (Containerfile.alpine)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Containerfile.alpine
+
+      - name: Hadolint (Containerfile.package)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Containerfile.package
+
+  # ===========================================================================
+  # Test: unit + integration
+  # Runs on: main/PR (if changed), all tags (always)
+  # ===========================================================================
+  test:
+    name: Test
+    needs: changes
+    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.ci == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc 2>/dev/null || true
+
+      - name: Install Rust ${{ env.RUST_TOOLCHAIN }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-unified-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-unified-
+
+      - name: Run all tests
+        run: cargo test --all-targets || cargo test --all-targets
+
+  # ===========================================================================
+  # E2E Tests: parallelized into 4 groups for faster execution
+  # Runs on: main/PR (if changed), all tags (always)
+  # ===========================================================================
+  e2e-tests:
+    name: E2E (${{ matrix.name }})
+    needs: changes
+    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.ci == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: SSH & SOCKS5
+            tests: >-
+              --test e2e_auth
+              --test e2e_ssh_session
+              --test e2e_socks5_server
+              --test e2e_socks5_standalone
+              --test e2e_socks5_timeout
+              --test e2e_forwarding
+              --test e2e_rejection
+          - name: ACL & Security
+            tests: >-
+              --test e2e_acl_fqdn
+              --test e2e_acl_subnet
+              --test e2e_acl_combined
+              --test e2e_acl_ipv6
+              --test e2e_autoban
+              --test e2e_shell
+              --test e2e_shell_commands
+              --test e2e_upstream_proxy
+          - name: API & Dashboard
+            tests: >-
+              --test e2e_api_dashboard
+              --test e2e_api_users_details
+              --test e2e_api_audit_improvements
+              --test e2e_api_groups
+              --test e2e_api_sessions
+              --test e2e_quota_api
+              --test e2e_status
+              --test e2e_cli
+          - name: Integrations
+            tests: >-
+              --test e2e_audit_trail
+              --test e2e_webhook
+              --test e2e_webhook_retry
+              --test e2e_sse_ticket
+              --test e2e_sse_payload
+              --test e2e_ws
+              --test e2e_metrics_server
+              --test e2e_backup_restore
+              --test e2e_reload
+              --test e2e_performance
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust ${{ env.RUST_TOOLCHAIN }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-unified-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-unified-
+
+      - name: Run E2E tests
+        run: cargo test ${{ matrix.tests }}
+
+  # ===========================================================================
+  # Test MSRV: verify compilation with minimum supported Rust version
+  # Runs on: main/PR and tags
+  # ===========================================================================
+  test-msrv:
+    name: Test MSRV (1.88)
+    needs: changes
+    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.ci == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust 1.88
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.88"
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-msrv-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-msrv-
+
+      - name: Check MSRV compilation
+        run: cargo check
+
+  # ===========================================================================
+  # Coverage: cargo-tarpaulin
+  # Runs on: main/PR and tags
+  # ===========================================================================
+  coverage:
+    name: Coverage
+    needs: changes
+    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.ci == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust ${{ env.RUST_TOOLCHAIN }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: llvm-tools-preview
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-unified-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-unified-
+
+      - name: Cache cargo tools
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/bin
+          key: ${{ runner.os }}-cargo-tools-${{ hashFiles('.github/workflows/ci.yml') }}
+          restore-keys: ${{ runner.os }}-cargo-tools-
+
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov --locked || true
+
+      - name: Generate coverage
+        run: cargo llvm-cov --lcov --output-path lcov.info --lib --test unit
+        timeout-minutes: 10
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: lcov.info
+          fail_ci_if_error: true
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  # ===========================================================================
+  # Security: cargo-audit + cargo-deny
+  # Runs on: main/PR (if changed), all tags (always)
+  # ===========================================================================
+  security:
+    name: Security
+    needs: changes
+    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.ci == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust ${{ env.RUST_TOOLCHAIN }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - name: Cache cargo tools
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/bin
+          key: ${{ runner.os }}-cargo-tools-${{ hashFiles('.github/workflows/ci.yml') }}
+          restore-keys: ${{ runner.os }}-cargo-tools-
+
+      - name: Install security tools
+        run: |
+          cargo install cargo-audit --locked || true
+          cargo install cargo-deny --locked || true
+
+      - name: cargo audit
+        run: cargo audit
+
+      - name: cargo deny
+        run: cargo deny check
+
+  # ===========================================================================
+  # SARIF: clippy results in GitHub Security tab
+  # Runs on: push to main only (not PRs, not tags)
+  # ===========================================================================
+  sarif:
+    name: SARIF Upload
+    needs: changes
+    if: >-
+      github.event_name == 'push'
+      && !startsWith(github.ref, 'refs/tags/')
+      && (needs.changes.outputs.rust == 'true' || needs.changes.outputs.ci == 'true')
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust ${{ env.RUST_TOOLCHAIN }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: clippy
+
+      - name: Cache cargo tools
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/bin
+          key: ${{ runner.os }}-cargo-tools-${{ hashFiles('.github/workflows/ci.yml') }}
+          restore-keys: ${{ runner.os }}-cargo-tools-
+
+      - name: Install clippy-sarif and sarif-fmt
+        run: |
+          cargo install clippy-sarif --locked || true
+          cargo install sarif-fmt --locked || true
+
+      - name: Run clippy (SARIF)
+        run: >
+          cargo clippy --all-targets --message-format=json |
+          clippy-sarif | tee results.sarif | sarif-fmt
+        continue-on-error: true
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: results.sarif
+
+  # ===========================================================================
+  # E2E Browser: headless Chrome via Podman
+  # Runs on: main/PR and tags
+  # ===========================================================================
+  e2e-browser:
+    name: E2E Browser Tests
+    needs: changes
+    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.ci == 'true' || needs.changes.outputs.demo == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust ${{ env.RUST_TOOLCHAIN }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-unified-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-unified-
+
+      - name: Verify Podman is available
+        run: podman --version
+
+      - name: Pull Chrome Headless image
+        run: podman pull docker.io/chromedp/headless-shell:latest
+
+      - name: Run browser E2E tests
+        run: cargo test --test e2e_browser_dashboard -- --ignored --nocapture
+        env:
+          RUST_LOG: debug
+
+      - name: Capture dashboard screenshots
+        run: |
+          mkdir -p screenshots
+          SCREENSHOT_DIR=screenshots cargo test --test e2e_browser_screenshots -- --ignored --nocapture
+        env:
+          RUST_LOG: debug
+
+      - name: Upload screenshots artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-screenshots
+          path: screenshots/
+          retention-days: 1
+
+      - name: Cleanup Chrome containers
+        if: always()
+        run: |
+          podman ps -aq --filter name=sks5-chrome | xargs -r podman rm -f 2>/dev/null || true
+          podman image rm docker.io/chromedp/headless-shell:latest 2>/dev/null || true
+
+  # ===========================================================================
+  # VHS: generate terminal demo GIF
+  # Runs on: main/PR and tags
+  # ===========================================================================
+  vhs-demo:
+    name: Generate Terminal Demo
+    needs: [changes]
+    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.demo == 'true' || needs.changes.outputs.ci == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust ${{ env.RUST_TOOLCHAIN }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-unified-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-unified-
+
+      - name: Build sks5
+        run: cargo build --release
+
+      - name: Make binary executable
+        run: chmod +x target/release/sks5
+
+      - name: Install VHS + deps
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg fonts-jetbrains-mono
+          curl -fsSL -o /tmp/ttyd "https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.x86_64"
+          sudo install /tmp/ttyd /usr/local/bin/ttyd
+          VHS_VERSION=$(curl -fsSL https://api.github.com/repos/charmbracelet/vhs/releases/latest | grep -oP '"tag_name":\s*"v\K[^"]+')
+          curl -fsSL "https://github.com/charmbracelet/vhs/releases/download/v${VHS_VERSION}/vhs_${VHS_VERSION}_Linux_x86_64.tar.gz" | \
+            sudo tar -xz -C /usr/local/bin --strip-components=1 "vhs_${VHS_VERSION}_Linux_x86_64/vhs"
+
+      - name: Add sks5 to PATH
+        run: |
+          mkdir -p ~/.local/bin
+          install target/release/sks5 ~/.local/bin/sks5
+          echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+
+      - name: Generate demo GIF
+        run: vhs contrib/demo.tape
+
+      - name: Upload GIF
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-gif
+          path: contrib/demo.gif
+          retention-days: 1
+
+      - name: Stop sks5
+        if: always()
+        run: pkill sks5 || true
+
+  # ===========================================================================
+  # Verify: tag matches Cargo.toml version (v* release only)
+  # ===========================================================================
+  verify-version:
+    name: Verify version matches tag
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Verify version matches tag
+        run: |
+          CARGO_VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*= "//;s/"//')
+          TAG_VERSION=${GITHUB_REF#refs/tags/v}
+          if [ "$CARGO_VERSION" != "$TAG_VERSION" ]; then
+            echo "ERROR: Cargo.toml version ($CARGO_VERSION) doesn't match tag ($TAG_VERSION)"
+            exit 1
+          fi
+          echo "Version verified: $CARGO_VERSION == $TAG_VERSION"
+
+  # ===========================================================================
+  # Build Release Binary: shared artifact for vhs-demo and extras
+  # ===========================================================================
+  build-release-binary:
+    name: Build Release Binary
+    needs: verify-version
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-release-
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Upload release binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sks5-release-binary
+          path: target/release/sks5
+          retention-days: 1
+
+  # ===========================================================================
+  # Build: cross-compile for all targets (v* release only)
+  # Waits for ALL tests to pass before building
+  # ===========================================================================
+  build:
+    name: Build (${{ matrix.target }})
+    needs: [verify-version, lint, test, e2e-tests, test-msrv, coverage, e2e-browser, security]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            archive: sks5-x86_64-linux-gnu.tar.gz
+          - target: x86_64-unknown-linux-musl
+            archive: sks5-x86_64-linux-musl.tar.gz
+          - target: aarch64-unknown-linux-gnu
+            archive: sks5-aarch64-linux-gnu.tar.gz
+          - target: aarch64-unknown-linux-musl
+            archive: sks5-aarch64-linux-musl.tar.gz
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cross
+        run: cargo install cross
+
+      - name: Build
+        run: cross build --release --target ${{ matrix.target }}
+
+      - name: Strip binary
+        run: |
+          if command -v strip &> /dev/null; then
+            strip target/${{ matrix.target }}/release/sks5 2>/dev/null || true
+          fi
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/sks5 dist/
+          cp README.md LICENSE dist/ 2>/dev/null || true
+          cd dist && tar czf ../${{ matrix.archive }} *
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.archive }}
+          path: ${{ matrix.archive }}
+
+  # ===========================================================================
+  # Extras: generate shell completions and man page (v* release only)
+  # ===========================================================================
+  extras:
+    name: Generate extras
+    needs: build-release-binary
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download release binary
+        uses: actions/download-artifact@v7
+        with:
+          name: sks5-release-binary
+          path: target/release/
+
+      - name: Make binary executable
+        run: chmod +x target/release/sks5
+
+      - name: Generate completions
+        run: |
+          mkdir -p completions
+          target/release/sks5 completions bash > completions/sks5.bash
+          target/release/sks5 completions zsh > completions/_sks5
+          target/release/sks5 completions fish > completions/sks5.fish
+
+      - name: Generate man page
+        run: |
+          mkdir -p man
+          target/release/sks5 manpage > man/sks5.1
+
+      - name: Upload completions
+        uses: actions/upload-artifact@v4
+        with:
+          name: completions
+          path: completions/
+
+      - name: Upload man page
+        uses: actions/upload-artifact@v4
+        with:
+          name: manpage
+          path: man/
+
+  # ===========================================================================
+  # SBOM: generate CycloneDX Software Bill of Materials (v* release only)
+  # ===========================================================================
+  sbom:
+    name: Generate SBOM
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo tools
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/bin
+          key: ${{ runner.os }}-cargo-tools-${{ hashFiles('.github/workflows/ci.yml') }}
+          restore-keys: ${{ runner.os }}-cargo-tools-
+
+      - name: Install cargo-cyclonedx
+        run: cargo install cargo-cyclonedx --locked || true
+
+      - name: Generate CycloneDX SBOM (JSON)
+        run: cargo cyclonedx -f json
+
+      - name: Rename SBOM for release
+        run: |
+          # cargo-cyclonedx outputs to bom.json or <crate>.cdx.json
+          # Find the generated file and rename for the release
+          SBOM_FILE=$(find . -maxdepth 2 -name '*.cdx.json' -o -name 'bom.json' | head -1)
+          if [ -z "$SBOM_FILE" ]; then
+            echo "ERROR: SBOM file not found"
+            ls -la *.json 2>/dev/null || true
+            exit 1
+          fi
+          # Only copy if the file is not already named sks5.cdx.json
+          if [ "$SBOM_FILE" != "./sks5.cdx.json" ]; then
+            cp "$SBOM_FILE" sks5.cdx.json
+          fi
+          echo "SBOM generated: sks5.cdx.json"
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sks5.cdx.json
+
+  # ===========================================================================
+  # Release: checksums, cosign signing, GitHub Release (v* release only)
+  # ---------------------------------------------------------------------------
+  # Verification (after downloading a binary and its .sig / .pem):
+  #
+  #   cosign verify-blob \
+  #     --certificate <binary>.pem \
+  #     --signature <binary>.sig \
+  #     --certificate-identity-regexp '.*' \
+  #     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  #     <binary>
+  #
+  # SHA256SUMS and the SBOM (sks5.cdx.json) are also signed:
+  #
+  #   cosign verify-blob \
+  #     --certificate SHA256SUMS.pem \
+  #     --signature SHA256SUMS.sig \
+  #     --certificate-identity-regexp '.*' \
+  #     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  #     SHA256SUMS
+  #
+  # SLSA provenance can be verified with gh CLI:
+  #
+  #   gh attestation verify <binary> -R <owner>/<repo>
+  # ===========================================================================
+  release:
+    name: GitHub Release
+    needs: [build, extras, sbom, security]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: artifacts/
+
+      - name: Collect release files
+        run: |
+          mkdir -p release
+          find artifacts -type f -name '*.tar.gz' -exec cp {} release/ \;
+          cp artifacts/sbom/sks5.cdx.json release/ 2>/dev/null || true
+          ls -la release/
+
+      - name: Generate checksums
+        run: |
+          cd release
+          sha256sum *.tar.gz sks5.cdx.json > SHA256SUMS
+          echo "Generated SHA256SUMS:"
+          cat SHA256SUMS
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign release artifacts with cosign (keyless / OIDC)
+        run: |
+          cd release
+
+          # Sign each binary archive
+          for archive in *.tar.gz; do
+            echo "Signing $archive ..."
+            cosign sign-blob --yes \
+              --output-signature "${archive}.sig" \
+              --output-certificate "${archive}.pem" \
+              "$archive"
+          done
+
+          # Sign the SHA256SUMS file
+          echo "Signing SHA256SUMS ..."
+          cosign sign-blob --yes \
+            --output-signature SHA256SUMS.sig \
+            --output-certificate SHA256SUMS.pem \
+            SHA256SUMS
+
+          # Sign the SBOM
+          if [ -f sks5.cdx.json ]; then
+            echo "Signing sks5.cdx.json ..."
+            cosign sign-blob --yes \
+              --output-signature sks5.cdx.json.sig \
+              --output-certificate sks5.cdx.json.pem \
+              sks5.cdx.json
+          fi
+
+          echo "Cosign signing complete."
+          ls -la *.sig *.pem
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            release/*.tar.gz
+            release/*.tar.gz.sig
+            release/*.tar.gz.pem
+            release/SHA256SUMS
+            release/SHA256SUMS.sig
+            release/SHA256SUMS.pem
+            release/sks5.cdx.json
+            release/sks5.cdx.json.sig
+            release/sks5.cdx.json.pem
+            artifacts/completions/*
+            artifacts/manpage/*
+
+  # ===========================================================================
+  # SLSA Provenance: GitHub-native build attestation (v* release only)
+  # ---------------------------------------------------------------------------
+  # Generates SLSA provenance for all release archives. Attestations are stored
+  # in the GitHub attestation ledger and can be verified with:
+  #
+  #   gh attestation verify <binary> -R <owner>/<repo>
+  # ===========================================================================
+  provenance:
+    name: SLSA Provenance
+    needs: [build]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
+    strategy:
+      matrix:
+        include:
+          - archive: sks5-x86_64-linux-gnu.tar.gz
+          - archive: sks5-x86_64-linux-musl.tar.gz
+          - archive: sks5-aarch64-linux-gnu.tar.gz
+          - archive: sks5-aarch64-linux-musl.tar.gz
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: ${{ matrix.archive }}
+
+      - name: Generate SLSA provenance attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: ${{ matrix.archive }}
+
+  # ===========================================================================
+  # Docker: multi-arch images (v* release and beta-* tags)
+  # ---------------------------------------------------------------------------
+  # v* tags:    downloads pre-built musl binaries from the build job artifacts
+  #             and packages them with Containerfile.package (no compilation).
+  # beta-* tags: compiles from source with cross (build job is skipped).
+  # ===========================================================================
+  docker:
+    name: Docker (${{ startsWith(github.ref, 'refs/tags/v') && 'Release' || 'Beta' }})
+    needs: [build, lint, test, e2e-tests]
+    if: |
+      !cancelled() && startsWith(github.ref, 'refs/tags/') &&
+      needs.lint.result == 'success' && needs.test.result == 'success' &&
+      needs.e2e-tests.result == 'success' &&
+      (needs.build.result == 'success' || needs.build.result == 'skipped')
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - uses: actions/checkout@v6
+
+      # --- Release path: download pre-built musl binaries ---
+      - name: Download amd64 musl artifact
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/download-artifact@v7
+        with:
+          name: sks5-x86_64-linux-musl.tar.gz
+          path: /tmp/artifacts/amd64
+
+      - name: Download arm64 musl artifact
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/download-artifact@v7
+        with:
+          name: sks5-aarch64-linux-musl.tar.gz
+          path: /tmp/artifacts/arm64
+
+      - name: Extract binaries for Containerfile.package
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          mkdir -p binaries/amd64 binaries/arm64
+          tar xzf /tmp/artifacts/amd64/sks5-x86_64-linux-musl.tar.gz -C binaries/amd64
+          tar xzf /tmp/artifacts/arm64/sks5-aarch64-linux-musl.tar.gz -C binaries/arm64
+          chmod +x binaries/amd64/sks5 binaries/arm64/sks5
+          ls -la binaries/amd64/ binaries/arm64/
+
+      # --- Beta path: compile from source with cross ---
+      - name: Install Rust
+        if: startsWith(github.ref, 'refs/tags/beta-')
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cross
+        if: startsWith(github.ref, 'refs/tags/beta-')
+        run: cargo install cross
+
+      - name: Cross-compile amd64
+        if: startsWith(github.ref, 'refs/tags/beta-')
+        run: cross build --release --target x86_64-unknown-linux-musl
+
+      - name: Cross-compile arm64
+        if: startsWith(github.ref, 'refs/tags/beta-')
+        run: cross build --release --target aarch64-unknown-linux-musl
+
+      - name: Prepare binaries (beta)
+        if: startsWith(github.ref, 'refs/tags/beta-')
+        run: |
+          mkdir -p binaries/amd64 binaries/arm64
+          cp target/x86_64-unknown-linux-musl/release/sks5 binaries/amd64/sks5
+          cp target/aarch64-unknown-linux-musl/release/sks5 binaries/arm64/sks5
+          chmod +x binaries/amd64/sks5 binaries/arm64/sks5
+
+      # --- Common: build and push multi-arch images ---
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Metadata (minimal)
+        id: meta-minimal
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ghcr.io/${{ github.repository }}
+            dockerhubgalti3r/sks5
+          tags: |
+            type=semver,pattern={{version}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=semver,pattern={{major}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=beta,enable=${{ startsWith(github.ref, 'refs/tags/beta-') }}
+            type=match,pattern=beta-(.*),group=0,enable=${{ startsWith(github.ref, 'refs/tags/beta-') }}
+
+      - name: Build and push (minimal)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Containerfile.package
+          target: minimal
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta-minimal.outputs.tags }}
+          labels: ${{ steps.meta-minimal.outputs.labels }}
+          cache-from: type=gha,scope=docker
+          cache-to: type=gha,mode=max,scope=docker
+
+      - name: Metadata (alpine)
+        id: meta-alpine
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ghcr.io/${{ github.repository }}
+            dockerhubgalti3r/sks5
+          flavor: |
+            suffix=-alpine
+          tags: |
+            type=semver,pattern={{version}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=semver,pattern={{major}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=beta,enable=${{ startsWith(github.ref, 'refs/tags/beta-') }}
+            type=match,pattern=beta-(.*),group=0,enable=${{ startsWith(github.ref, 'refs/tags/beta-') }}
+
+      - name: Build and push (alpine)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Containerfile.package
+          target: alpine
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta-alpine.outputs.tags }}
+          labels: ${{ steps.meta-alpine.outputs.labels }}
+          cache-from: type=gha,scope=docker
+
+  # ===========================================================================
+  # Publish: crates.io + Homebrew notification (v* release only)
+  # ===========================================================================
+  publish-crate:
+    name: Publish to crates.io
+    needs: [build]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish to crates.io
+        run: |
+          cargo publish --allow-dirty 2>&1 | grep -v '^warning: ignoring test' || echo "::warning::Publish failed (crate version may already exist)"
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Notify Homebrew tap
+        if: success()
+        continue-on-error: true
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          repository: galti3r/homebrew-sks5
+          event-type: new-release
+          client-payload: '{"version": "${{ github.ref_name }}"}'

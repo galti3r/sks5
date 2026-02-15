@@ -1,0 +1,154 @@
+# Compatible with both podman-compose and docker-compose
+#
+# Usage examples:
+#   With config file:  docker compose up -d
+#   With env vars:     docker compose --profile env up -d
+#   With TLS SOCKS5:   docker compose --profile tls up -d
+#
+# Health probes:
+#   /livez   — Liveness probe (always 200, unauthenticated). Use for container restart decisions.
+#   /health  — Readiness probe (503 in maintenance mode). Use for load-balancer drain.
+#   sks5 health-check --addr HOST:PORT --timeout SECS — TCP connect probe (for HEALTHCHECK in Containerfile).
+
+services:
+  # Mode 1: Config file (default) — scratch-based image
+  sks5:
+    build:
+      context: .
+      dockerfile: Containerfile
+    ports:
+      - "2222:2222"
+      - "1080:1080"
+      - "9090:9090"   # Prometheus metrics
+      - "9091:9091"   # Management API
+    volumes:
+      - ./config.example.toml:/etc/sks5/config.toml:ro
+      - sks5-hostkey:/etc/sks5/keys
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/sks5", "health-check", "--addr", "127.0.0.1:2222", "--timeout", "3"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Mode 2: Environment variables - multi-user with Docker secrets
+  # Activate with: docker compose --profile env up -d
+  sks5-env:
+    profiles: ["env"]
+    build:
+      context: .
+      dockerfile: Containerfile
+    ports:
+      - "2222:2222"
+      - "1080:1080"
+      - "9090:9090"   # Prometheus metrics
+      - "9091:9091"   # Management API
+    environment:
+      # --- Server ---
+      SKS5_SSH_LISTEN: "0.0.0.0:2222"
+      SKS5_SOCKS5_LISTEN: "0.0.0.0:1080"
+      SKS5_HOST_KEY_PATH: "/data/host_key"
+      SKS5_SHUTDOWN_TIMEOUT: "30"
+      # --- DNS cache ---
+      SKS5_DNS_CACHE_TTL: "-1"
+      SKS5_DNS_CACHE_MAX_ENTRIES: "1000"
+      # --- SOCKS5 ---
+      SKS5_SOCKS5_HANDSHAKE_TIMEOUT: "30"
+      # --- Logging ---
+      SKS5_LOG_FORMAT: "json"
+      # --- Metrics + API ---
+      SKS5_METRICS_ENABLED: "true"
+      SKS5_METRICS_LISTEN: "0.0.0.0:9090"
+      SKS5_MAX_METRIC_LABELS: "100"
+      SKS5_API_ENABLED: "true"
+      SKS5_API_LISTEN: "0.0.0.0:9091"
+      SKS5_API_TOKEN_FILE: /run/secrets/api_token
+      # --- Security ---
+      SKS5_BAN_ENABLED: "true"
+      SKS5_BAN_THRESHOLD: "5"
+      SKS5_BAN_WHITELIST: "127.0.0.1"
+      SKS5_IP_GUARD_ENABLED: "true"
+      SKS5_MAX_NEW_CONNECTIONS_PER_IP_PER_MINUTE: "30"
+      # --- Global ACL ---
+      SKS5_GLOBAL_ACL_DENY: "169.254.169.254:*"
+      # --- User 0: alice — full access with TOTP ---
+      SKS5_USER_0_USERNAME: "alice"
+      SKS5_USER_0_PASSWORD_HASH_FILE: /run/secrets/alice_hash
+      SKS5_USER_0_ALLOW_FORWARDING: "true"
+      SKS5_USER_0_ALLOW_SHELL: "true"
+      SKS5_USER_0_MAX_BANDWIDTH_KBPS: "0"
+      SKS5_USER_0_MAX_AGGREGATE_BANDWIDTH_KBPS: "0"
+      SKS5_USER_0_ACL_DENY: "169.254.169.254:*,10.0.0.0/8:*"
+      SKS5_USER_0_TOTP_ENABLED: "false"
+      SKS5_USER_0_TOTP_SECRET_FILE: /run/secrets/alice_totp
+      # --- User 1: bob — restricted, no shell ---
+      SKS5_USER_1_USERNAME: "bob"
+      SKS5_USER_1_PASSWORD_HASH_FILE: /run/secrets/bob_hash
+      SKS5_USER_1_ALLOW_SHELL: "false"
+      SKS5_USER_1_MAX_BANDWIDTH_KBPS: "1024"
+      SKS5_USER_1_MAX_NEW_CONNECTIONS_PER_MINUTE: "30"
+      SKS5_USER_1_ACL_DEFAULT_POLICY: "deny"
+      SKS5_USER_1_ACL_ALLOW: "*.example.com:443,api.github.com:443"
+      SKS5_USER_1_ACL_DENY: "169.254.169.254:*"
+      SKS5_USER_1_ACL_INHERIT: "true"
+    secrets:
+      - alice_hash
+      - bob_hash
+      - alice_totp
+      - api_token
+    volumes:
+      - sks5-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "sks5", "health-check", "--addr", "127.0.0.1:2222", "--timeout", "3"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Mode 3: TLS SOCKS5 listener (optional)
+  # Activate with: docker compose --profile tls up -d
+  sks5-tls:
+    profiles: ["tls"]
+    build:
+      context: .
+      dockerfile: Containerfile
+    ports:
+      - "2222:2222"
+      - "1080:1080"
+    environment:
+      SKS5_SSH_LISTEN: "0.0.0.0:2222"
+      SKS5_SOCKS5_LISTEN: "0.0.0.0:1080"
+      SKS5_HOST_KEY_PATH: "/data/host_key"
+      SKS5_SOCKS5_TLS_CERT: "/etc/sks5/tls/socks5.crt"
+      SKS5_SOCKS5_TLS_KEY: "/etc/sks5/tls/socks5.key"
+      SKS5_USER_0_USERNAME: "alice"
+      SKS5_USER_0_PASSWORD_HASH_FILE: /run/secrets/alice_hash
+    secrets:
+      - alice_hash
+    volumes:
+      - ./tls:/etc/sks5/tls:ro
+      - sks5-data-tls:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "sks5", "health-check", "--addr", "127.0.0.1:2222", "--timeout", "3"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+secrets:
+  alice_hash:
+    file: ./secrets/alice_hash.txt
+  bob_hash:
+    file: ./secrets/bob_hash.txt
+  alice_totp:
+    file: ./secrets/alice_totp.txt
+  api_token:
+    file: ./secrets/api_token.txt
+
+volumes:
+  sks5-hostkey:
+  sks5-data:
+  sks5-data-tls:

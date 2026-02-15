@@ -1,0 +1,958 @@
+###############################################################################
+# sks5 — Configuration Reference
+#
+# Generate a working config quickly:
+#   sks5 quick-start --password demo --save-config config.toml
+#   sks5 init --username alice --password secret --output config.toml
+#
+# Generate a password hash:
+#   sks5 hash-password --password "your-password"
+#   make hash-password
+#
+# Only [server] and [[users]] are required. All other sections are optional
+# and fully defaulted. Commented lines show the default value.
+###############################################################################
+
+
+# =============================================================================
+# [server] — REQUIRED
+# =============================================================================
+[server]
+
+# SSH listen address — REQUIRED, cannot be empty.
+ssh_listen = "0.0.0.0:2222"
+
+# Standalone SOCKS5 listener (username/password auth, independent of SSH).
+# Default: absent (disabled). Requires at least one user with a password.
+# socks5_listen = "0.0.0.0:1080"
+
+# Path to the SSH host key (Ed25519).
+# Auto-generated on first start if the file does not exist.
+# Default: "host_key"
+# host_key_path = "host_key"
+
+# SSH protocol identification string sent to clients.
+# Default: "SSH-2.0-sks5_<version>" (e.g. "SSH-2.0-sks5_0.1.0")
+# server_id = "SSH-2.0-sks5_0.1.0"
+
+# Banner shown before SSH authentication prompt.
+# Default: "Welcome to sks5"
+# banner = "Welcome to sks5"
+
+# Path to a Message Of The Day file (raw text shown after login).
+# Default: absent (no file-based MOTD). See also [motd] for template-based MOTD.
+# motd_path = "/etc/sks5/motd.txt"
+
+# HAProxy PROXY protocol v1/v2 support on the SSH listener.
+# Enable only if sks5 is behind a PROXY-protocol-aware load balancer.
+# Default: false
+# proxy_protocol = false
+
+# Restrict SSH ciphers. Empty list = use russh defaults (secure).
+# Default: [] (all secure ciphers allowed)
+# allowed_ciphers = ["chacha20-poly1305@openssh.com", "aes256-gcm@openssh.com"]
+
+# Restrict key exchange algorithms. Empty list = use russh defaults.
+# Default: [] (all secure kex algorithms allowed)
+# allowed_kex = ["curve25519-sha256", "curve25519-sha256@libssh.org"]
+
+# Graceful shutdown timeout in seconds.
+# Active connections drain during this period before being forcefully closed.
+# Default: 30
+# shutdown_timeout = 30
+
+# TLS for SOCKS5 standalone listener. Both cert and key must be set together.
+# When configured, the SOCKS5 listener accepts only TLS connections.
+# Default: absent (no TLS, plain SOCKS5)
+# socks5_tls_cert = "/etc/sks5/socks5.crt"
+# socks5_tls_key = "/etc/sks5/socks5.key"
+
+# DNS cache TTL mode:
+#   -1 = follow native DNS TTL from resolver (default)
+#    0 = disabled (fresh DNS lookup every time)
+#    N = custom TTL of N seconds for all entries
+# Default: -1
+# dns_cache_ttl = -1
+
+# Maximum DNS cache entries. Oldest expired entries are evicted first.
+# Default: 1000
+# dns_cache_max_entries = 1000
+
+# Smart retry on outbound TCP connect failure.
+# 0 = disabled (fail immediately). N = retry N times with exponential backoff.
+# Delay doubles each retry, capped at 10 seconds.
+# Default: 0 (disabled)
+# connect_retry = 0
+
+# Initial delay in milliseconds for smart retry (doubles each attempt, max 10s).
+# Only used when connect_retry > 0.
+# Default: 1000
+# connect_retry_delay_ms = 1000
+
+# Path for storing persistent bookmarks (JSON file).
+# Default: absent (bookmarks stored in-memory only, lost on restart)
+# bookmarks_path = "/var/lib/sks5/bookmarks.json"
+
+# SSH keepalive interval in seconds. Server sends keepalive requests to detect
+# dead clients and prevent ghost sessions. 0 = disabled.
+# Default: 15
+# ssh_keepalive_interval_secs = 15
+
+# Maximum number of unanswered SSH keepalives before disconnecting the client.
+# Default: 3
+# ssh_keepalive_max = 3
+
+# Maximum time in seconds allowed for SSH authentication (key exchange + auth).
+# Connections that don't authenticate within this window are rejected.
+# Range: 10-600.
+# Default: 120
+# ssh_auth_timeout = 120
+
+
+# =============================================================================
+# [shell] — Optional
+# Emulated shell displayed to SSH interactive sessions.
+# =============================================================================
+[shell]
+
+# Hostname shown in the shell prompt (user@hostname:~$) and in `uname -n`.
+# Default: "sks5-proxy"
+# hostname = "sks5-proxy"
+hostname = "bastion-01"
+
+# Shell prompt suffix string (appended after "user@hostname:~").
+# Default: "$ "
+# prompt = "$ "
+
+# Enable ANSI color output in the shell (colored prompt, command output).
+# Default: true
+# colors = true
+
+# Enable tab-completion for commands and arguments.
+# Default: true
+# autocomplete = true
+
+
+# =============================================================================
+# [limits] — Optional
+# Connection and authentication limits.
+# =============================================================================
+[limits]
+
+# Maximum total concurrent connections across all users.
+# Default: 1000
+# max_connections = 1000
+
+# Maximum concurrent connections per user.
+# 0 = unlimited. Default: 0 (unlimited)
+# max_connections_per_user = 0
+
+# Connection establishment timeout in seconds (TCP connect to upstream).
+# Must be > 0 (validated at startup).
+# Default: 300 (5 minutes)
+# connection_timeout = 300
+
+# Idle timeout in seconds. Connections with no data exchanged for this duration
+# are closed automatically. 0 = never time out (connections stay open indefinitely).
+# Default: 0 (no timeout — connections stay open indefinitely)
+# idle_timeout = 0
+
+# Maximum failed authentication attempts before the SSH connection is closed.
+# Default: 3
+# max_auth_attempts = 3
+
+# Timeout in seconds for the SOCKS5 handshake (authentication + connect request).
+# Prevents slowloris-style attacks. Must be between 5 and 120.
+# Default: 30
+# socks5_handshake_timeout = 30
+
+# Warn users N seconds before idle disconnect by sending a shell message.
+# 0 = no warning (connection closed silently when idle timeout is reached).
+# Only effective when idle_timeout > 0.
+# Default: 0 (no warning)
+# idle_warning_secs = 0
+# idle_warning_secs = 60
+
+# Server-wide bandwidth cap in Mbps. All connections combined cannot exceed this.
+# 0 = unlimited.
+# Default: 0 (unlimited)
+# max_bandwidth_mbps = 0
+
+# Server-level max new connections per second (across all users).
+# 0 = unlimited.
+# Default: 0 (unlimited)
+# max_new_connections_per_second = 0
+
+# Server-level max new connections per minute (across all users).
+# 0 = unlimited.
+# Default: 0 (unlimited)
+# max_new_connections_per_minute = 0
+
+# UDP relay idle timeout in seconds. Inactive UDP relay sessions are closed
+# after this duration. Range: 30-3600.
+# Default: 300 (5 minutes)
+# udp_relay_timeout = 300
+
+# Maximum concurrent UDP relay sessions per user. 0 = unlimited.
+# Default: 0 (unlimited)
+# max_udp_sessions_per_user = 0
+
+
+# =============================================================================
+# [security] — Optional
+# IP filtering, automatic banning (fail2ban-style), and reputation scoring.
+# =============================================================================
+[security]
+
+# IP/CIDR whitelist for source connections.
+# When non-empty, ONLY these IPs/CIDRs can connect (all others rejected).
+# Default: [] (empty = all source IPs allowed)
+# allowed_source_ips = []
+# allowed_source_ips = ["10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"]
+
+# Enable automatic IP banning after repeated auth failures (fail2ban-style).
+# Default: true
+# ban_enabled = true
+
+# Number of failed auth attempts within ban_window to trigger a ban.
+# Must be >= 1 when ban_enabled = true (validated at startup).
+# Default: 5
+# ban_threshold = 5
+
+# Time window (seconds) in which auth failures are counted toward ban_threshold.
+# Default: 300 (5 minutes)
+# ban_window = 300
+
+# How long an IP stays banned (seconds). Auto-unbanned after this duration.
+# Default: 900 (15 minutes)
+# ban_duration = 900
+
+# IPs/CIDRs exempt from banning (always allowed, even after failures).
+# Default: [] (no exemptions)
+# ban_whitelist = []
+ban_whitelist = ["127.0.0.1"]
+
+# Anti-SSRF guard: prevents forwarding to private/internal addresses.
+# Blocks: 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16,
+#          169.254.0.0/16, fc00::/7, fe80::/10, ::1, and cloud metadata IPs.
+# Default: true
+# ip_guard_enabled = true
+
+# Per-IP pre-auth rate limit: maximum new connections per IP per minute.
+# Applied before authentication. IPs in ban_whitelist are exempt.
+# 0 = unlimited (no rate limit).
+# Default: 0 (unlimited)
+# max_new_connections_per_ip_per_minute = 0
+# max_new_connections_per_ip_per_minute = 30
+
+# Protocols requiring TOTP 2FA. Users with totp_enabled must present TOTP code.
+# Valid values: "ssh", "socks5". Empty = TOTP not enforced globally.
+# Default: [] (per-user totp_enabled still applies)
+# totp_required_for = []
+
+# Enable IP reputation scoring. Tracks per-IP behavior scores:
+#   Auth failure: +10 points, ACL denial: +5, rapid connections: +3,
+#   Auth success: -5 points. Scores decay exponentially (halve every hour).
+# Default: false
+# ip_reputation_enabled = false
+
+# Auto-ban threshold for IP reputation score.
+# When an IP's score exceeds this value, it is automatically banned.
+# 0 = scoring only (no auto-ban from reputation).
+# Default: 100
+# ip_reputation_ban_threshold = 100
+
+# Trusted CA public keys for SSH certificate authentication.
+# Users presenting a certificate signed by one of these CAs are accepted.
+# Format: one entry per CA, in OpenSSH authorized_keys format.
+# Default: [] (certificate auth disabled)
+# trusted_user_ca_keys = []
+# trusted_user_ca_keys = ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... my-CA-key"]
+
+# Argon2id password hashing parameters. These control the cost of password
+# verification. Higher values are more secure but slower. OWASP recommends
+# m=19456 (19 MiB), t=2, p=1 as minimum.
+# Default: 19456 (19 MiB)
+# argon2_memory_cost = 19456
+# Default: 2
+# argon2_time_cost = 2
+# Default: 1
+# argon2_parallelism = 1
+
+# Rate limiter housekeeping: interval in seconds for pruning stale entries.
+# Default: 60
+# rate_limit_cleanup_interval = 60
+
+# Maximum number of IPs tracked by the rate limiter. Oldest entries are
+# evicted when exceeded. Prevents unbounded memory growth from port scans.
+# Default: 100000
+# rate_limit_max_ips = 100000
+
+# Maximum number of usernames tracked by the rate limiter.
+# Default: 10000
+# rate_limit_max_users = 10000
+
+
+# =============================================================================
+# [logging] — Optional
+# =============================================================================
+[logging]
+
+# Log level: trace, debug, info, warn, error.
+# Default: "info"
+# level = "info"
+
+# Log format: "pretty" (human-readable) or "json" (structured, for log aggregators).
+# Default: "pretty"
+# format = "pretty"
+
+# Separate audit log file for security events (auth, forwarding, bans).
+# When set, security events are written to this file in JSON format.
+# Default: absent (audit events go to the main log only)
+# audit_log_path = "/var/log/sks5/audit.json"
+
+# Max size per audit log file before rotation (MB).
+# Default: 100
+# audit_max_size_mb = 100
+
+# Number of rotated audit log files to retain.
+# Default: 5
+# audit_max_files = 5
+
+# Enable detailed connection flow logs (per-step timing for each connection).
+# Useful for debugging latency. Produces verbose output at debug log level.
+# Default: false
+# connection_flow_logs = false
+
+
+# =============================================================================
+# [metrics] — Optional
+# Prometheus-compatible metrics endpoint.
+# =============================================================================
+[metrics]
+
+# Enable the /metrics HTTP endpoint for Prometheus scraping.
+# Default: false
+# enabled = false
+enabled = true
+
+# Listen address for the metrics HTTP server.
+# Default: "127.0.0.1:9090"
+# listen = "127.0.0.1:9090"
+
+# Maximum number of distinct user labels in Prometheus metrics.
+# Beyond this cap, new users are aggregated under the "_other" label.
+# Prevents high-cardinality label explosion in large deployments.
+# Default: 100
+# max_metric_labels = 100
+
+
+# =============================================================================
+# [api] — Optional
+# HTTP management API (health, users, connections, bans, maintenance, SSE).
+# =============================================================================
+[api]
+
+# Enable the API server.
+# Default: false
+# enabled = false
+
+# Listen address for the API HTTP server.
+# Default: "127.0.0.1:9091"
+# listen = "127.0.0.1:9091"
+
+# Bearer token for API authentication (sent in Authorization header).
+# REQUIRED when enabled = true (validated at startup, must be non-empty).
+# GET /api/health is the only endpoint that does not require auth.
+# Default: "" (empty)
+# token = ""
+
+# Example: enable API with a token
+# enabled = true
+# listen = "127.0.0.1:9091"
+# token = "my-secret-api-token"
+
+
+# =============================================================================
+# [geoip] — Optional
+# GeoIP-based country filtering. Requires a MaxMind GeoLite2-Country database.
+# =============================================================================
+[geoip]
+
+# Enable GeoIP country filtering.
+# Default: false
+# enabled = false
+
+# Path to the GeoLite2-Country.mmdb file.
+# Default: absent
+# database_path = "/etc/sks5/GeoLite2-Country.mmdb"
+
+# Allow only these countries (ISO 3166-1 alpha-2). Empty = all countries allowed.
+# Default: [] (no restriction)
+# allowed_countries = ["FR", "DE", "US"]
+
+# Block these countries. Empty = none blocked.
+# If both allowed_countries and denied_countries are non-empty,
+# allowed_countries is checked first.
+# Default: [] (no restriction)
+# denied_countries = ["CN", "RU"]
+
+# Behavior when GeoIP lookup fails (IP not found in database or DB error).
+# true = deny access (strict). false = allow access (permissive).
+# Default: false (allow on lookup failure)
+# fail_closed = false
+
+
+# =============================================================================
+# [motd] — Optional
+# Message of the Day shown after SSH login. Supports template variables.
+#
+# Available variables:
+#   {user}            — username
+#   {auth_method}     — "password", "pubkey", "pubkey+totp"
+#   {source_ip}       — client IP address
+#   {connections}     — number of active connections for this user
+#   {acl_policy}      — effective ACL policy ("allow" or "deny")
+#   {expires_at}      — account expiration date or "never"
+#   {bandwidth_used}  — total bandwidth consumed (human-readable)
+#   {bandwidth_limit} — bandwidth limit (human-readable) or "unlimited"
+#   {last_login}      — last login timestamp or "first login"
+#   {uptime}          — server uptime (human-readable)
+#   {version}         — sks5 version string
+#   {group}           — group name or "none"
+#   {role}            — "user" or "admin"
+#   {denied}          — comma-separated ACL deny rules (or "none")
+#
+# When template is absent, a built-in default MOTD is used.
+# Per-user and per-group [motd] sections override this global one.
+# =============================================================================
+
+# [motd]
+# # Enable MOTD display. Default: true
+# enabled = true
+# # Enable ANSI color codes in MOTD output. Default: true
+# colors = true
+# # Custom template (uses default if absent). Default: absent (built-in)
+# template = """
+# Welcome {user}! Connected from {source_ip} via {auth_method}.
+# Role: {role} | Group: {group} | Policy: {acl_policy}
+# Bandwidth: {bandwidth_used} / {bandwidth_limit}
+# Server uptime: {uptime} | Version: {version}
+# """
+
+
+# =============================================================================
+# [upstream_proxy] — Optional
+# Route all outbound traffic through an upstream SOCKS5 proxy.
+# Default: absent (direct connections)
+# =============================================================================
+
+# [upstream_proxy]
+# url = "socks5://proxy.internal:1080"
+
+
+# =============================================================================
+# [[webhooks]] — Optional (repeatable)
+# HTTP webhooks triggered by server events.
+# Default: [] (no webhooks)
+# =============================================================================
+
+# [[webhooks]]
+# # Webhook URL — REQUIRED for each webhook entry.
+# url = "https://hooks.example.com/sks5"
+# # Event types to subscribe to. Default: [] (all events)
+# # Valid: "auth_success", "auth_failure", "connection_open", "connection_close", "ban"
+# events = ["auth_success", "auth_failure", "connection_open", "connection_close", "ban"]
+# # HMAC secret for X-Signature-256 header verification. Default: absent (no signature)
+# secret = "hmac-secret-for-signature"
+# # Allow delivery to private/internal IPs (RFC1918, loopback).
+# # Set true for local/internal webhook receivers. Default: false
+# allow_private_ips = false
+# # Maximum retry attempts on delivery failure. 0 = no retry. Default: 3
+# max_retries = 3
+# # Initial retry delay in ms (doubled each attempt). Default: 1000
+# retry_delay_ms = 1000
+# # Maximum retry delay in ms (cap for exponential backoff). Default: 30000
+# max_retry_delay_ms = 30000
+
+
+# =============================================================================
+# [acl] — Optional
+# Global Access Control Lists applied to ALL users.
+# Per-user [users.acl] sections inherit these rules by default.
+# Users can add their own rules (merged) or set inherit = false to ignore.
+# =============================================================================
+
+# [acl]
+# # Default policy when no allow/deny rule matches.
+# # Default: "allow"
+# default_policy = "allow"
+# # Global deny rules — always checked first for every user.
+# # Default: [] (no global deny rules)
+# deny = [
+#     "169.254.169.254:*",
+#     "10.0.0.0/8:*",
+#     "172.16.0.0/12:*",
+#     "192.168.0.0/16:*",
+# ]
+# # Global allow rules — checked after deny rules.
+# # Default: [] (no global allow rules)
+# allow = []
+
+
+# =============================================================================
+# [[groups]] — Optional (repeatable)
+# User groups for shared configuration inheritance.
+# Users reference groups via the `group = "name"` field.
+# Inheritance order: user > group > global defaults.
+# All group fields are optional — they serve as defaults for members.
+# Default: [] (no groups)
+# =============================================================================
+
+# [[groups]]
+# name = "developers"                     # REQUIRED: group name
+# allow_forwarding = true                 # Default: true (inherited from global)
+# allow_shell = true                      # Default: true
+# max_bandwidth_kbps = 10240              # 10 Mbps per connection. Default: 0 (unlimited)
+# max_aggregate_bandwidth_kbps = 51200    # 50 Mbps total for group. Default: 0 (unlimited)
+# max_new_connections_per_minute = 60     # Default: 0 (unlimited)
+# max_connections_per_user = 20           # Max concurrent connections per user. Default: absent (inherit)
+# role = "user"                           # "user" or "admin". Default: "user"
+# colors = true                           # ANSI colors in shell. Default: true
+# connect_retry = 2                       # Retry on failure. Default: 0 (disabled)
+# connect_retry_delay_ms = 500            # Initial retry delay. Default: 1000
+# idle_warning_secs = 60                  # Warn 60s before idle disconnect. Default: 0
+# auth_methods = ["password"]             # Auth method chain. Default: absent (any)
+#
+# # Multi-window rate limits for new connections.
+# # 0 = unlimited. Overrides server-level [limits] values.
+# [groups.rate_limits]
+# connections_per_second = 5              # Default: 0 (unlimited)
+# connections_per_minute = 60             # Default: 0 (unlimited)
+# connections_per_hour = 500              # Default: 0 (unlimited)
+#
+# [groups.acl]
+# default_policy = "allow"
+# deny = ["10.0.0.0/8:*"]
+# allow = []
+# inherit = true                          # Inherit global ACL. Default: true
+#
+# [groups.shell_permissions]
+# show_connections = true                 # Default: true
+# show_bandwidth = true                   # Default: true
+# show_acl = true                         # Default: true
+# show_status = true                      # Default: true
+# show_history = true                     # Default: true
+# show_fingerprint = true                 # Default: true
+# test_command = true                     # `test host:port`. Default: true
+# ping_command = true                     # `ping host`. Default: true
+# resolve_command = true                  # `resolve hostname`. Default: true
+# bookmark_command = true                 # `bookmark add/list/del`. Default: true
+# alias_command = true                    # `alias add/list/del`. Default: true
+#
+# [groups.motd]
+# enabled = true                          # Default: true
+# colors = true                           # Default: true
+# template = "Welcome {user}! You are in the developers group."
+#
+# [groups.quotas]
+# daily_bandwidth_bytes = 10737418240     # 10 GB/day. 0 = unlimited. Default: 0
+# daily_connection_limit = 0              # 0 = unlimited. Default: 0
+# monthly_bandwidth_bytes = 0             # 0 = unlimited. Default: 0
+# monthly_connection_limit = 10000        # Default: 0
+# bandwidth_per_hour_bytes = 536870912    # 512 MB/hour rolling. 0 = unlimited. Default: 0
+# total_bandwidth_bytes = 107374182400    # 100 GB lifetime. 0 = unlimited. Never auto-resets. Default: 0
+#
+# [groups.time_access]
+# access_hours = "06:00-22:00"            # HH:MM-HH:MM. Absent = 24h access
+# access_days = ["mon", "tue", "wed", "thu", "fri", "sat"]  # Empty = all days
+# timezone = "UTC"                        # IANA timezone. Default: "UTC"
+
+# [[groups]]
+# name = "admins"
+# allow_forwarding = true
+# allow_shell = true
+# role = "admin"
+
+
+# =============================================================================
+# [alerting] — Optional
+# Alert rules triggered on bandwidth, connections, or auth failures.
+# Alerts can fire webhooks when thresholds are exceeded.
+# Default: disabled
+# =============================================================================
+
+# [alerting]
+# enabled = false                         # Default: false
+#
+# [[alerting.rules]]
+# name = "high_bandwidth_alert"           # REQUIRED: rule name
+# # Valid conditions: "bandwidth_exceeded", "connections_exceeded",
+# #   "auth_failures", "monthly_bandwidth_exceeded", "hourly_bandwidth_exceeded"
+# condition = "bandwidth_exceeded"
+# threshold = 1073741824                  # 1 GB threshold
+# window_secs = 3600                      # Evaluation window. Default: 3600 (1 hour)
+# users = []                              # Empty = all users. Default: []
+# webhook_url = "https://hooks.example.com/sks5-alert"  # Absent = no webhook
+#
+# [[alerting.rules]]
+# name = "brute_force_detection"
+# condition = "auth_failures"
+# threshold = 50
+# window_secs = 300                       # 50 failures in 5 minutes
+#
+# [[alerting.rules]]
+# name = "connection_spike"
+# condition = "connections_exceeded"
+# threshold = 500
+# window_secs = 60                        # 500 connections in 1 minute
+#
+# [[alerting.rules]]
+# name = "monthly_bandwidth_cap"
+# condition = "monthly_bandwidth_exceeded"
+# threshold = 107374182400                # 100 GB monthly
+#
+# [[alerting.rules]]
+# name = "hourly_bandwidth_spike"
+# condition = "hourly_bandwidth_exceeded"
+# threshold = 5368709120                  # 5 GB per hour
+
+
+# =============================================================================
+# [[maintenance_windows]] — Optional (repeatable)
+# Scheduled maintenance windows. During maintenance, new connections are
+# rejected with a custom message. Optionally, existing connections are closed.
+# Default: [] (no scheduled maintenance)
+# =============================================================================
+
+# [[maintenance_windows]]
+# schedule = "Sun 02:00-04:00"            # REQUIRED: "Sun 02:00-04:00", "daily 03:00-04:00"
+# timezone = "UTC"                        # Default: "UTC"
+# message = "Server is under scheduled maintenance. Please try again later."  # Default message
+# disconnect_existing = false             # Close active connections. Default: false
+
+# [[maintenance_windows]]
+# schedule = "daily 04:00-04:30"
+# timezone = "Europe/Paris"
+# message = "Daily maintenance window. Back soon!"
+# disconnect_existing = true
+
+
+# =============================================================================
+# [connection_pool] — Optional
+# TCP connection pooling for outbound proxy connections.
+# Reuses idle connections to reduce latency on repeated requests to the same host.
+# Pool strategy: LIFO (last-in-first-out) per host:port.
+# Default: disabled
+# =============================================================================
+
+# [connection_pool]
+# enabled = false                         # Default: false
+# max_idle_per_host = 10                  # Max idle connections per host:port. Default: 10
+# idle_timeout_secs = 60                  # Seconds before idle pooled connection is closed. Default: 60
+
+
+# =============================================================================
+# [[users]] — REQUIRED (at least one user)
+#
+# Each user needs at least one of: password_hash, authorized_keys.
+# Usernames must be unique (validated at startup).
+#
+# Generate a password hash:
+#   sks5 hash-password --password "your-password"
+#   make hash-password
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# User: alice — Full access, password auth
+# Demonstrates all available per-user fields.
+# -----------------------------------------------------------------------------
+[[users]]
+username = "alice"
+password_hash = "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHQ$somehash"
+
+# SSH public keys for key-based auth (in addition to or instead of password).
+# Default: [] (no public keys)
+# authorized_keys = []
+# authorized_keys = [
+#     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... alice@laptop",
+#     "ssh-rsa AAAAB3NzaC1yc2EAAAA... alice@desktop",
+# ]
+
+# Allow SSH dynamic forwarding (ssh -D) and local forwarding (ssh -L).
+# Default: true
+# allow_forwarding = true
+
+# Allow interactive shell access (ssh user@host).
+# Default: true
+# allow_shell = true
+
+# User group (references a [[groups]] name). Inherits group settings.
+# User fields override group defaults when both are set.
+# Default: absent (no group)
+# group = "developers"
+
+# User role: "user" (default) or "admin".
+# Admins see extended info in shell commands like `show status`.
+# Default: "user"
+# role = "user"
+
+# Rate limit: max new connections per minute for this user.
+# 0 = unlimited.
+# Default: 0 (unlimited)
+# max_new_connections_per_minute = 0
+
+# Bandwidth cap in Kbps per individual connection.
+# 0 = unlimited.
+# Default: 0 (unlimited)
+# max_bandwidth_kbps = 0
+
+# Total bandwidth cap across ALL concurrent connections for this user (Kbps).
+# 0 = unlimited.
+# Default: 0 (unlimited)
+# max_aggregate_bandwidth_kbps = 0
+
+# Maximum concurrent connections for this user.
+# Overrides group/global max_connections_per_user.
+# 0 = unlimited.
+# Default: absent (inherit from group or global)
+# max_connections = 5
+
+# Enable TOTP 2FA for this user. Requires totp_secret to be set.
+# When enabled, user must append 6-digit TOTP code to their password.
+# Default: false
+# totp_enabled = false
+
+# Base32-encoded TOTP secret. Generate with: sks5 generate-totp <username>
+# Default: absent
+# totp_secret = "JBSWY3DPEHPK3PXP"
+
+# Restrict source IPs for this user. Only these IPs/CIDRs can authenticate.
+# Default: [] (any source IP)
+# source_ips = []
+
+# Account expiration (ISO 8601). After this date, authentication is rejected.
+# Default: absent (never expires)
+# expires_at = "2026-12-31T23:59:59Z"
+
+# Per-user upstream proxy. Overrides the global [upstream_proxy] for this user.
+# Default: absent (use global or direct)
+# upstream_proxy = "socks5://user-proxy.internal:1080"
+
+# Enable ANSI colors in shell output. Overrides group/global [shell].colors.
+# Default: absent (inherit from group or global, which defaults to true)
+# colors = true
+
+# Smart retry override (outbound connection retries). Overrides [server].connect_retry.
+# Default: absent (inherit from server, which defaults to 0 = disabled)
+# connect_retry = 2
+# connect_retry_delay_ms = 500
+
+# Idle warning override (seconds before idle disconnect to warn user).
+# Overrides [limits].idle_warning_secs. 0 = no warning.
+# Default: absent (inherit from global, which defaults to 0)
+# idle_warning_secs = 60
+
+# Auth method chain. Require specific auth methods in sequence.
+# E.g., ["pubkey", "password"] = both public key AND password required.
+# Default: absent (any configured auth method accepted)
+# auth_methods = ["password"]
+
+# Shell aliases: shortcut commands defined as key-value pairs.
+# Type the alias name in shell → it expands to the command.
+# Default: {} (no aliases)
+# [users.aliases]
+# db = "test prod-db:5432"
+# web = "test web-app:443"
+# status = "show status"
+
+[users.acl]
+# Per-user ACL: merged with global [acl] by default.
+# Set inherit = false to ignore global rules entirely.
+# Default: inherit = true
+# inherit = true
+
+# Default policy override for this user.
+# Absent = inherit from global [acl].default_policy (which defaults to "allow").
+# default_policy = "allow"
+
+# Allow/deny rules are ADDED to global rules (when inherit = true).
+# Format: "host:port", "cidr:port", "*.pattern:port", "[ipv6]:port"
+# Port can be: specific (443), range (80-443), or wildcard (*).
+# Default: [] (no extra rules)
+# allow = []
+
+# deny = []
+deny = ["169.254.169.254:*"]  # Block AWS/cloud metadata endpoint
+
+# Per-user shell command permissions. Overrides group/global defaults.
+# All permissions default to true when not specified.
+# [users.shell_permissions]
+# show_connections = true       # `show connections` — active proxy connections
+# show_bandwidth = true         # `show bandwidth` — bandwidth usage stats
+# show_acl = true               # `show acl` — ACL rules for current user
+# show_status = true            # `show status` — session info (user, IP, role)
+# show_history = true           # `show history` — command history
+# show_fingerprint = true       # `show fingerprint` — SSH key fingerprint
+# test_command = true           # `test host:port` — TCP connectivity check
+# ping_command = true           # `ping host` — simulated ICMP ping
+# resolve_command = true        # `resolve hostname` — DNS lookup
+# bookmark_command = true       # `bookmark add/list/del` — host bookmarks
+# alias_command = true          # `alias add/list/del` — command aliases
+
+# Per-user MOTD override. Takes precedence over group and global [motd].
+# [users.motd]
+# enabled = true                # Default: true
+# colors = true                 # Default: true
+# template = "Hello {user}! Your role: {role}. Expires: {expires_at}"
+
+# Multi-window rate limits for new connections (overrides group/server defaults).
+# 0 = unlimited.
+# [users.rate_limits]
+# connections_per_second = 2            # Default: 0 (unlimited)
+# connections_per_minute = 30           # Default: 0 (unlimited)
+# connections_per_hour = 200            # Default: 0 (unlimited)
+
+# Per-user quotas (daily/monthly/hourly/total limits). All default to 0 (unlimited).
+# [users.quotas]
+# daily_bandwidth_bytes = 1073741824    # 1 GB/day. 0 = unlimited
+# daily_connection_limit = 0            # 0 = unlimited
+# monthly_bandwidth_bytes = 0           # 0 = unlimited
+# monthly_connection_limit = 0          # 0 = unlimited
+# bandwidth_per_hour_bytes = 536870912  # 512 MB/hour rolling. 0 = unlimited
+# total_bandwidth_bytes = 107374182400  # 100 GB lifetime. 0 = unlimited. Never auto-resets.
+
+# Per-user time-based access restrictions.
+# [users.time_access]
+# access_hours = "08:00-18:00"          # HH:MM-HH:MM. Absent = 24h access
+# access_days = ["mon", "tue", "wed", "thu", "fri"]  # Empty = all days
+# timezone = "UTC"                      # IANA timezone. Default: "UTC"
+
+
+# -----------------------------------------------------------------------------
+# User: bob — Forwarding only, restricted bandwidth and source IPs
+# -----------------------------------------------------------------------------
+[[users]]
+username = "bob"
+password_hash = "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHQ$somehash"
+authorized_keys = []
+allow_forwarding = true
+allow_shell = false                     # No shell access
+max_new_connections_per_minute = 30     # Rate-limited
+max_bandwidth_kbps = 1024              # 1 Mbps cap per connection
+max_aggregate_bandwidth_kbps = 4096    # 4 Mbps total across all connections
+source_ips = ["10.0.0.0/8"]            # Only from private network
+expires_at = "2026-12-31T23:59:59Z"    # Temporary account
+
+[users.acl]
+# Inherits global [acl] deny rules + adds more
+deny = [
+    "10.0.0.0/8:*",           # Block access to internal network
+    "172.16.0.0/12:*",        # Block other RFC1918 ranges
+    "192.168.0.0/16:*",
+]
+
+
+# -----------------------------------------------------------------------------
+# User: charlie — Key-only auth, deny-by-default ACL (whitelist mode)
+# -----------------------------------------------------------------------------
+[[users]]
+username = "charlie"
+# No password — key auth only
+authorized_keys = [
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample... charlie@workstation",
+]
+allow_forwarding = true
+allow_shell = true
+
+[users.acl]
+# Override global policy to deny-by-default (whitelist mode)
+default_policy = "deny"
+allow = [
+    "*.example.com:443",       # HTTPS to example.com subdomains
+    "api.github.com:443",      # GitHub API
+    "httpbin.org:80",          # Testing
+    "93.184.216.34:80-443",    # Specific IP, port range 80-443
+    "[2606:2800:220:1::]:443", # IPv6 example
+]
+
+
+# -----------------------------------------------------------------------------
+# User: dave — Full access with TOTP 2FA enabled
+# -----------------------------------------------------------------------------
+# TOTP 2FA usage:
+#   1. Generate a secret:   sks5 generate-totp dave
+#   2. Scan the QR code in Google Authenticator / Authy / etc.
+#   3. When authenticating, append the 6-digit TOTP code to the password:
+#      password = "mypassword" + "123456" → enter "mypassword123456"
+#   4. The server strips the last 6 characters as the TOTP code automatically.
+[[users]]
+username = "dave"
+password_hash = "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHQ$somehash"
+allow_forwarding = true
+allow_shell = true
+totp_enabled = true
+totp_secret = "JBSWY3DPEHPK3PXP"
+
+[users.acl]
+deny = ["169.254.169.254:*"]
+
+
+# -----------------------------------------------------------------------------
+# User: contractor — Time-limited, quota-restricted, group member
+# Demonstrates groups, quotas, time access, aliases, and shell_permissions.
+# -----------------------------------------------------------------------------
+# [[users]]
+# username = "contractor"
+# password_hash = "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHQ$somehash"
+# group = "developers"                  # Inherits group settings
+# role = "user"
+# allow_forwarding = true
+# allow_shell = true
+# expires_at = "2026-06-30T23:59:59Z"
+# idle_warning_secs = 120              # Warn 2 minutes before idle disconnect
+#
+# [users.aliases]
+# db = "test prod-db:5432"
+# staging = "test staging.internal:8080"
+#
+# [users.quotas]
+# daily_bandwidth_bytes = 1073741824   # 1 GB/day
+# monthly_connection_limit = 1000
+#
+# [users.time_access]
+# access_hours = "08:00-18:00"
+# access_days = ["mon", "tue", "wed", "thu", "fri"]
+# timezone = "Europe/Paris"
+#
+# [users.shell_permissions]
+# show_connections = true
+# show_bandwidth = true
+# show_acl = false                     # Hide ACL details from contractors
+# show_status = true
+# test_command = true
+# ping_command = false                 # No ping for contractors
+# resolve_command = true
+# bookmark_command = true
+# alias_command = true
+
+
+# -----------------------------------------------------------------------------
+# User: readonly — Minimal access, shell only, no forwarding
+# -----------------------------------------------------------------------------
+# [[users]]
+# username = "readonly"
+# password_hash = "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHQ$somehash"
+# allow_forwarding = false
+# allow_shell = true
+# max_new_connections_per_minute = 5
+#
+# [users.shell_permissions]
+# show_connections = false
+# show_bandwidth = false
+# show_acl = false
+# test_command = false
+# ping_command = false
+# resolve_command = false
+# bookmark_command = false
+# alias_command = false

@@ -1,0 +1,312 @@
+# Forgejo Actions CI pipeline for sks5
+# Compatible with Forgejo Actions (GitHub Actions syntax subset)
+# https://forgejo.org/docs/latest/user/actions/
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+# Cancel in-progress runs on same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ===========================================================================
+  # Lint: fmt + clippy
+  # ===========================================================================
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    container:
+      image: rust:1.83-slim-bookworm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install components
+        run: rustup component add rustfmt clippy
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-lint-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+  # ===========================================================================
+  # Test: unit + E2E
+  # ===========================================================================
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    container:
+      image: rust:1.83-slim-bookworm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-test-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run all tests
+        run: cargo test --all-targets
+
+  # ===========================================================================
+  # Security: cargo-audit + cargo-deny
+  # ===========================================================================
+  security:
+    name: Security
+    runs-on: ubuntu-latest
+    container:
+      image: rust:1.83-slim-bookworm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-security-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install security tools
+        run: |
+          cargo install cargo-audit
+          cargo install cargo-deny
+
+      - name: cargo audit
+        run: cargo audit
+
+      - name: cargo deny
+        run: cargo deny check
+
+  # ===========================================================================
+  # Benchmark: criterion performance regression detection
+  # ===========================================================================
+  benchmark:
+    name: Benchmark
+    runs-on: ubuntu-latest
+    container:
+      image: rust:1.83-slim-bookworm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-bench-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run benchmarks
+        run: cargo bench --all -- --output-format bencher | tee bench-output.txt
+
+      - name: Download previous baseline
+        uses: actions/cache@v4
+        with:
+          path: bench-baseline.txt
+          key: bench-baseline-${{ github.ref_name }}
+          restore-keys: bench-baseline-main
+
+      - name: Check for regressions (>10% threshold)
+        run: |
+          if [ -f bench-baseline.txt ]; then
+            echo "Comparing against previous baseline..."
+            python3 -c "
+          import re, sys
+          def parse_bench(path):
+              results = {}
+              with open(path) as f:
+                  for line in f:
+                      m = re.match(r'test (\S+)\s+\.\.\. bench:\s+([\d,]+) ns/iter', line)
+                      if m:
+                          name = m.group(1)
+                          ns = int(m.group(2).replace(',', ''))
+                          results[name] = ns
+              return results
+          baseline = parse_bench('bench-baseline.txt')
+          current = parse_bench('bench-output.txt')
+          regressions = []
+          for name, cur_ns in sorted(current.items()):
+              if name in baseline:
+                  base_ns = baseline[name]
+                  change = ((cur_ns - base_ns) / base_ns) * 100
+                  status = 'REGRESSION' if change > 10 else 'ok'
+                  if change > 10:
+                      regressions.append((name, change))
+                  print(f'{name}: {base_ns} -> {cur_ns} ns/iter ({change:+.1f}%) [{status}]')
+              else:
+                  print(f'{name}: {cur_ns} ns/iter [new]')
+          if regressions:
+              print(f'\nERROR: {len(regressions)} benchmark(s) regressed by more than 10%:')
+              for name, change in regressions:
+                  print(f'  - {name}: +{change:.1f}%')
+              sys.exit(1)
+          else:
+              print('\nAll benchmarks within 10% threshold.')
+          "
+          else
+            echo "No previous baseline found — storing current results as baseline."
+          fi
+
+      - name: Update baseline
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: cp bench-output.txt bench-baseline.txt
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v3
+        with:
+          name: benchmark-results
+          path: bench-output.txt
+
+  # ===========================================================================
+  # Build: release binary
+  # ===========================================================================
+  build:
+    name: Build
+    needs: [lint, test]
+    runs-on: ubuntu-latest
+    container:
+      image: rust:1.83-slim-bookworm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-build-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build release
+        run: |
+          cargo build --release
+          strip target/release/sks5
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: sks5-linux-amd64
+          path: target/release/sks5
+
+  # ===========================================================================
+  # E2E Browser: headless Chrome via Podman
+  # NOTE: This job runs directly on the host (no container:) because it needs
+  # Podman to launch Chrome Headless. Requires Podman + Rust on the runner.
+  # ===========================================================================
+  e2e-browser:
+    name: E2E Browser Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.83
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-e2e-browser-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install Podman (if not present)
+        run: |
+          if ! command -v podman &>/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq podman
+          fi
+          podman --version
+
+      - name: Pull Chrome Headless image
+        run: podman pull docker.io/chromedp/headless-shell:latest
+
+      - name: Run browser E2E tests
+        run: cargo test --test e2e_browser_dashboard -- --ignored --nocapture
+        env:
+          RUST_LOG: debug
+
+      - name: Cleanup Chrome containers
+        if: always()
+        run: |
+          podman ps -aq --filter name=sks5-chrome | xargs -r podman rm -f 2>/dev/null || true
+          podman image rm docker.io/chromedp/headless-shell:latest 2>/dev/null || true
+
+  # ===========================================================================
+  # Docker: multi-arch build + push to Forgejo registry
+  # ===========================================================================
+  docker:
+    name: Docker Multi-Arch Build & Push
+    needs: [lint, test, security, e2e-browser]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup QEMU (ARM64 emulation)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to registry
+        run: >
+          echo "${{ secrets.REGISTRY_PASSWORD }}" |
+          docker login -u "${{ secrets.REGISTRY_USER }}" --password-stdin
+          "${{ vars.REGISTRY_URL || 'localhost:3000' }}"
+
+      - name: Set image tags
+        id: tag
+        run: |
+          REGISTRY="${{ vars.REGISTRY_URL || 'localhost:3000' }}"
+          IMAGE="${REGISTRY}/${{ github.repository }}"
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            VERSION="${{ github.ref_name }}"
+            echo "tags=${IMAGE}:${VERSION},${IMAGE}:latest" >> "$GITHUB_OUTPUT"
+          else
+            SHA="sha-$(echo ${{ github.sha }} | cut -c1-7)"
+            echo "tags=${IMAGE}:${SHA},${IMAGE}:latest" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and push multi-arch image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Containerfile.cross
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tag.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

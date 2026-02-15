@@ -1,0 +1,7 @@
+{
+  "ref": "refs/tags/local-ci",
+  "before": "0000000000000000000000000000000000000000",
+  "repository": {
+    "default_branch": "main"
+  }
+}

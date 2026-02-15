@@ -1,0 +1,42 @@
+[Unit]
+Description=sks5 SSH+SOCKS5 proxy server
+Documentation=https://github.com/galti3r/sks5
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sks5
+Group=sks5
+ExecStart=/usr/local/bin/sks5 --config /etc/sks5/config.toml
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+
+# Hardening
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectHostname=true
+
+# File access
+ReadWritePaths=/var/lib/sks5 /var/log/sks5
+ReadOnlyPaths=/etc/sks5
+
+# Resource limits
+LimitNOFILE=65535
+LimitNPROC=4096
+
+[Install]
+WantedBy=multi-user.target

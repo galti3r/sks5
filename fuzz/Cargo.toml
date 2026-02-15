@@ -1,0 +1,48 @@
+[package]
+name = "sks5-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+tokio = { version = "1", features = ["full"] }
+
+[dependencies.sks5]
+path = ".."
+
+[[bin]]
+name = "fuzz_socks5_greeting"
+path = "fuzz_targets/fuzz_socks5_greeting.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_config_parser"
+path = "fuzz_targets/fuzz_config_parser.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_acl_rule"
+path = "fuzz_targets/fuzz_acl_rule.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_shell_tokenizer"
+path = "fuzz_targets/fuzz_shell_tokenizer.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_socks5_auth"
+path = "fuzz_targets/fuzz_socks5_auth.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_udp_header"
+path = "fuzz_targets/fuzz_udp_header.rs"
+doc = false
+
+[workspace]
+members = ["."]
