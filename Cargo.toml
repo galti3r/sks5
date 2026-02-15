@@ -211,7 +211,7 @@ thiserror = "2.0.9"
 dashmap = "6.1.0"
 
 # Rate limiting
-governor = "0.7.0"
+governor = "0.10.4"
 
 # HTTP server (metrics + API)
 axum = { version = "0.7.9", features = ["ws"] }
