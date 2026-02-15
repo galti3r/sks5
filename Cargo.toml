@@ -269,7 +269,7 @@ socket2 = "0.6"
 proxy-header = "0.1.2"
 
 # Rand for HMAC ticket nonce
-rand = "0.8"
+rand = "0.9"
 
 # Correlation IDs
 uuid = { version = "1.0", features = ["v4"] }
