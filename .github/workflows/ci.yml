@@ -1096,8 +1096,8 @@ jobs:
           if [ ! -f .github/workflows/update-formula.yml ]; then
             echo "Bootstrap: creating .github/workflows/update-formula.yml"
             mkdir -p .github/workflows
-            # Use DOLLARSIGN placeholder to avoid GitHub Actions evaluating
-            # ${{ }} expressions meant for the generated workflow file
+            # Use DOLLARSIGN placeholder to prevent GitHub Actions from
+            # evaluating expressions meant for the generated workflow file
             cat > .github/workflows/update-formula.yml << 'WORKFLOW'
           name: Update Formula
 
@@ -1146,7 +1146,7 @@ jobs:
                     git commit -m "feat: update sks5 to DOLLARSIGN{{ steps.ver.outputs.version }}"
                     git push
           WORKFLOW
-            # Replace DOLLARSIGN{{ with ${{ in the generated file
+            # Replace DOLLARSIGN placeholders with dollar-brace-brace in the generated file
             D='$'
             sed -i "s/DOLLARSIGN{{/${D}{{/g" .github/workflows/update-formula.yml
           fi
