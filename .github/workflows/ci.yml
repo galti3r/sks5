@@ -458,7 +458,7 @@ jobs:
           RUST_LOG: debug
 
       - name: Upload screenshots artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: dashboard-screenshots
           path: screenshots/
@@ -522,7 +522,7 @@ jobs:
         run: vhs contrib/demo.tape
 
       - name: Upload GIF
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: demo-gif
           path: contrib/demo.gif
@@ -580,7 +580,7 @@ jobs:
         run: cargo build --release
 
       - name: Upload release binary artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: sks5-release-binary
           path: target/release/sks5
@@ -632,7 +632,7 @@ jobs:
           cd dist && tar czf ../${{ matrix.archive }} *
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.archive }}
           path: ${{ matrix.archive }}
@@ -670,13 +670,13 @@ jobs:
           target/release/sks5 manpage > man/sks5.1
 
       - name: Upload completions
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: completions
           path: completions/
 
       - name: Upload man page
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: manpage
           path: man/
@@ -724,7 +724,7 @@ jobs:
           echo "SBOM generated: sks5.cdx.json"
 
       - name: Upload SBOM artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: sbom
           path: sks5.cdx.json
