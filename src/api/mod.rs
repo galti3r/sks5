@@ -524,15 +524,15 @@ pub async fn start_api_server(
         .route("/api/kick/{username}", post(kick::kick_user))
         .route("/api/ssh-config", get(ssh_config::ssh_config_snippet))
         .route("/api/quotas", get(quotas::list_quotas))
-        .route("/api/quotas/:username", get(quotas::get_user_quota))
+        .route("/api/quotas/{username}", get(quotas::get_user_quota))
         .route(
-            "/api/quotas/:username/reset",
+            "/api/quotas/{username}/reset",
             post(quotas::reset_user_quota),
         )
         .route("/api/groups", get(groups::list_groups))
-        .route("/api/groups/:name", get(groups::get_group))
+        .route("/api/groups/{name}", get(groups::get_group))
         .route("/api/sessions", get(sessions::list_sessions))
-        .route("/api/sessions/:username", get(sessions::get_user_sessions))
+        .route("/api/sessions/{username}", get(sessions::get_user_sessions))
         .route("/api/sse-ticket", post(sse_ticket_handler))
         .route("/api/backup", get(backup::backup_handler))
         .route("/api/restore", post(backup::restore_handler))

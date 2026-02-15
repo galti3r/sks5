@@ -48,7 +48,7 @@ async fn handle_ws(mut socket: WebSocket, state: AppState) {
             _ = interval.tick() => {
                 let payload = crate::api::sse::build_ws_payload(&state).await;
                 let json = serde_json::to_string(&payload).unwrap_or_default();
-                if socket.send(Message::Text(json)).await.is_err() {
+                if socket.send(Message::Text(json.into())).await.is_err() {
                     break;
                 }
             }
@@ -57,7 +57,7 @@ async fn handle_ws(mut socket: WebSocket, state: AppState) {
                     Some(Ok(Message::Text(text))) => {
                         let response = handle_command(&text, &state).await;
                         let json = serde_json::to_string(&response).unwrap_or_default();
-                        if socket.send(Message::Text(json)).await.is_err() {
+                        if socket.send(Message::Text(json.into())).await.is_err() {
                             break;
                         }
                     }
