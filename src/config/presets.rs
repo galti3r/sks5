@@ -54,7 +54,6 @@ deny = ["169.254.169.254:*", "10.0.0.0/8:*", "172.16.0.0/12:*", "192.168.0.0/16:
 [[users]]
 username = "{username}"
 password_hash = "{password_hash}"
-allow_forwarding = true
 allow_shell = true
 totp_enabled = true
 role = "admin"
@@ -124,7 +123,6 @@ deny = ["169.254.169.254:*"]
 [[users]]
 username = "{username}"
 password_hash = "{password_hash}"
-allow_forwarding = true
 allow_shell = true
 
 [users.acl]
@@ -186,7 +184,6 @@ default_policy = "allow"
 [[users]]
 username = "{username}"
 password_hash = "{password_hash}"
-allow_forwarding = true
 allow_shell = true
 role = "admin"
 

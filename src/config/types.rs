@@ -332,6 +332,7 @@ pub struct GroupConfig {
     pub max_aggregate_bandwidth_kbps: Option<u64>,
     #[serde(default)]
     pub max_new_connections_per_minute: Option<u32>,
+    /// Deprecated: ignored at runtime, use ACL instead.
     #[serde(default)]
     pub allow_forwarding: Option<bool>,
     #[serde(default)]
@@ -1140,10 +1141,11 @@ pub struct UserConfig {
     pub password_hash: Option<String>,
     #[serde(default)]
     pub authorized_keys: Vec<String>,
+    /// Deprecated: ignored at runtime, use ACL instead.
     #[serde(default = "default_true")]
     pub allow_forwarding: bool,
-    #[serde(default = "default_true")]
-    pub allow_shell: bool,
+    #[serde(default)]
+    pub allow_shell: Option<bool>,
     #[serde(default)]
     pub max_new_connections_per_minute: u32,
     #[serde(default)]
@@ -1212,7 +1214,6 @@ impl fmt::Debug for UserConfig {
                 "authorized_keys",
                 &format!("[{} keys]", self.authorized_keys.len()),
             )
-            .field("allow_forwarding", &self.allow_forwarding)
             .field("allow_shell", &self.allow_shell)
             .field(
                 "max_new_connections_per_minute",
