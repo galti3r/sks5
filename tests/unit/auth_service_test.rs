@@ -197,14 +197,12 @@ fn user_store_get() {
     assert!(alice.is_some(), "user_store should contain alice");
     let alice = alice.unwrap();
     assert_eq!(alice.username, "alice");
-    assert!(alice.allow_forwarding);
     assert!(alice.allow_shell);
 
     let bob = store.get("bob");
     assert!(bob.is_some(), "user_store should contain bob");
     let bob = bob.unwrap();
     assert_eq!(bob.username, "bob");
-    assert!(!bob.allow_forwarding);
     assert!(!bob.allow_shell);
 }
 

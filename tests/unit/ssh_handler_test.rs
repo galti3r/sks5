@@ -80,29 +80,6 @@ allow_shell = true
     toml::from_str(&toml_str).unwrap()
 }
 
-fn make_config_forwarding_denied() -> AppConfig {
-    let toml_str = format!(
-        r##"
-[server]
-ssh_listen = "127.0.0.1:2222"
-host_key_path = "/tmp/sks5-test-host-key"
-
-[limits]
-max_auth_attempts = 3
-
-[security]
-ban_enabled = false
-
-[[users]]
-username = "alice"
-password_hash = "{FAKE_HASH}"
-allow_forwarding = false
-allow_shell = true
-"##
-    );
-    toml::from_str(&toml_str).unwrap()
-}
-
 fn make_config_with_source_ips() -> AppConfig {
     let toml_str = format!(
         r##"
@@ -715,28 +692,6 @@ async fn validate_forwarding_unknown_user_returns_none() {
 }
 
 // ===========================================================================
-// 20. validate_forwarding_request - forwarding denied
-// ===========================================================================
-
-#[tokio::test]
-async fn validate_forwarding_denied_returns_none() {
-    let ctx = setup(make_config_forwarding_denied());
-    let mut handler = make_handler(ctx);
-
-    handler.set_authenticated("alice", "password");
-
-    let result = handler
-        .test_validate_forwarding_request("example.com", 443)
-        .await
-        .unwrap();
-
-    assert!(
-        result.is_none(),
-        "user with forwarding denied should return None"
-    );
-}
-
-// ===========================================================================
 // 21. validate_forwarding_request - source IP not allowed
 // ===========================================================================
 
@@ -816,7 +771,6 @@ async fn validate_forwarding_valid_request_returns_user_and_port() {
     assert_eq!(username, "alice");
     assert_eq!(port, 443);
     assert_eq!(user.username, "alice");
-    assert!(user.allow_forwarding);
 }
 
 #[tokio::test]
@@ -1200,7 +1154,6 @@ async fn validate_forwarding_returns_user_with_correct_permissions() {
     let (user, username, port) = result.unwrap();
     assert_eq!(username, "alice");
     assert_eq!(port, 8080);
-    assert!(user.allow_forwarding);
     assert!(user.allow_shell);
     assert_eq!(user.username, "alice");
 }
@@ -1465,10 +1418,8 @@ allow_shell = true
 // ===========================================================================
 
 #[tokio::test]
-async fn validate_forwarding_passes_with_acl_deny_rule() {
-    // ACL deny/allow rules are enforced by the proxy engine (connect_and_relay),
-    // NOT by validate_forwarding_request. This test verifies the handler
-    // passes the request through for proxy-level enforcement.
+async fn validate_forwarding_denied_by_acl_deny_rule() {
+    // ACL deny rules are now enforced at the SSH handler level via pre-check.
     let toml_str = format!(
         r##"
 [server]
@@ -1497,14 +1448,14 @@ allow_shell = true
     let mut handler = make_handler(ctx);
     handler.set_authenticated("alice", "password");
 
-    // validate_forwarding_request returns Some (ACL enforcement is downstream)
+    // validate_forwarding_request returns None (ACL pre-check denies)
     let result = handler
         .test_validate_forwarding_request("evil.com", 443)
         .await
         .unwrap();
     assert!(
-        result.is_some(),
-        "handler passes through; ACL is enforced by proxy engine"
+        result.is_none(),
+        "handler should deny forwarding when ACL deny rule matches"
     );
 }
 

@@ -114,7 +114,7 @@ async fn test_ssh_local_forward_large_data() {
 }
 
 // ---------------------------------------------------------------------------
-// Test 3: Forwarding denied for user with allow_forwarding=false
+// Test 3: Forwarding denied for user with ACL deny-all
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn test_forwarding_denied_user() {
@@ -126,7 +126,7 @@ async fn test_forwarding_denied_user() {
 
     let (echo_port, _echo_task) = tcp_echo_server().await;
 
-    // Connect as "nofwd" user who has allow_forwarding=false
+    // Connect as "nofwd" user who has ACL deny-all
     let client_config = Arc::new(russh::client::Config::default());
     let mut handle = russh::client::connect(
         client_config,
@@ -142,13 +142,13 @@ async fn test_forwarding_denied_user() {
         .unwrap();
     assert!(ok.success());
 
-    // Try to open direct-tcpip - should fail
+    // Try to open direct-tcpip - should fail (ACL denies all)
     let result = handle
         .channel_open_direct_tcpip("127.0.0.1", echo_port as u32, "127.0.0.1", 12345)
         .await;
 
     assert!(
         result.is_err(),
-        "forwarding should be denied for nofwd user"
+        "forwarding should be denied for nofwd user (ACL deny-all)"
     );
 }

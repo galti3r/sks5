@@ -14,7 +14,6 @@ pub struct UsersQuery {
 #[derive(Serialize)]
 pub struct UserInfo {
     pub username: String,
-    pub allow_forwarding: bool,
     pub allow_shell: bool,
     pub authorized_keys_count: usize,
     pub source_ips: Vec<String>,
@@ -62,7 +61,6 @@ pub async fn list_users(
 
                 UserInfo {
                     username: u.username.clone(),
-                    allow_forwarding: u.allow_forwarding,
                     allow_shell: u.allow_shell,
                     authorized_keys_count: u.authorized_keys.len(),
                     source_ips: u.source_ips.iter().map(|ip| ip.to_string()).collect(),

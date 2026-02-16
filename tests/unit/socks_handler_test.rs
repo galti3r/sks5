@@ -38,23 +38,6 @@ allow_shell = true
     toml::from_str(&toml_str).unwrap()
 }
 
-fn make_config_no_forwarding(password_hash: &str) -> AppConfig {
-    let toml_str = format!(
-        r##"
-[server]
-ssh_listen = "127.0.0.1:2222"
-host_key_path = "/tmp/sks5-test-host-key"
-
-[[users]]
-username = "alice"
-password_hash = "{password_hash}"
-allow_forwarding = false
-allow_shell = true
-"##
-    );
-    toml::from_str(&toml_str).unwrap()
-}
-
 fn setup(app_config: AppConfig) -> Arc<AppContext> {
     let config = Arc::new(app_config);
     let audit = Arc::new(AuditLogger::new(None, 0, 0, None));
@@ -261,49 +244,6 @@ async fn nonexistent_user_rejected() {
     let mut auth_resp = [0u8; 2];
     client.read_exact(&mut auth_resp).await.unwrap();
     assert_eq!(auth_resp[1], 0x01); // AUTH_FAILURE
-
-    let result = server_handle.await.unwrap();
-    assert!(result.is_ok());
-}
-
-// ---------------------------------------------------------------------------
-// Test 5: Forwarding denied for user without allow_forwarding
-// ---------------------------------------------------------------------------
-#[tokio::test]
-async fn forwarding_denied_closes_after_connect() {
-    let hash = password::hash_password("pass123").unwrap();
-    let ctx = setup(make_config_no_forwarding(&hash));
-
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-
-    let server_handle = tokio::spawn(async move {
-        let (stream, _) = listener.accept().await.unwrap();
-        sks5::socks::handler::handle_connection(stream, ctx).await
-    });
-
-    let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
-
-    // Full auth flow
-    write_greeting_password(&mut client).await;
-    let mut resp = [0u8; 2];
-    client.read_exact(&mut resp).await.unwrap();
-
-    write_credentials(&mut client, "alice", "pass123").await;
-    let mut auth_resp = [0u8; 2];
-    client.read_exact(&mut auth_resp).await.unwrap();
-    assert_eq!(auth_resp[1], 0x00); // AUTH_SUCCESS
-
-    // The handler should close the connection after auth success
-    // because allow_forwarding is false
-    // Read should return EOF or the connection gets closed
-    let mut buf = [0u8; 128];
-    let n = client.read(&mut buf).await.unwrap();
-    // Connection closed (EOF) - 0 bytes means server closed
-    assert_eq!(
-        n, 0,
-        "server should close connection when forwarding denied"
-    );
 
     let result = server_handle.await.unwrap();
     assert!(result.is_ok());

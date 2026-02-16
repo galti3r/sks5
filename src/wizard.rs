@@ -197,7 +197,7 @@ fn default_user(username: &str, password_hash: String) -> UserConfig {
         password_hash: Some(password_hash),
         authorized_keys: Vec::new(),
         allow_forwarding: true,
-        allow_shell: true,
+        allow_shell: Some(true),
         max_new_connections_per_minute: 0,
         max_bandwidth_kbps: 0,
         source_ips: Vec::new(),
@@ -357,11 +357,6 @@ fn prompt_users(config: &mut AppConfig) -> Result<()> {
             Vec::new()
         };
 
-        let allow_forwarding = Confirm::new()
-            .with_prompt("Allow port forwarding?")
-            .default(true)
-            .interact()?;
-
         let allow_shell = Confirm::new()
             .with_prompt("Allow shell access?")
             .default(true)
@@ -371,8 +366,8 @@ fn prompt_users(config: &mut AppConfig) -> Result<()> {
             username,
             password_hash,
             authorized_keys,
-            allow_forwarding,
-            allow_shell,
+            allow_forwarding: true,
+            allow_shell: Some(allow_shell),
             max_new_connections_per_minute: 0,
             max_bandwidth_kbps: 0,
             source_ips: Vec::new(),
@@ -620,11 +615,6 @@ fn prompt_groups(config: &mut AppConfig) -> Result<()> {
             .default(0u32)
             .interact_text()?;
 
-        let allow_forwarding = Confirm::new()
-            .with_prompt("Allow forwarding?")
-            .default(true)
-            .interact()?;
-
         config.groups.push(GroupConfig {
             name,
             acl: UserAclConfig::default(),
@@ -632,7 +622,7 @@ fn prompt_groups(config: &mut AppConfig) -> Result<()> {
             max_bandwidth_kbps: if max_bw > 0 { Some(max_bw) } else { None },
             max_aggregate_bandwidth_kbps: None,
             max_new_connections_per_minute: None,
-            allow_forwarding: Some(allow_forwarding),
+            allow_forwarding: None,
             allow_shell: None,
             shell_permissions: None,
             motd: None,
@@ -958,7 +948,7 @@ mod tests {
         assert_eq!(user.username, "alice");
         assert_eq!(user.password_hash, Some("hash123".to_string()));
         assert!(user.allow_forwarding);
-        assert!(user.allow_shell);
+        assert_eq!(user.allow_shell, Some(true));
         assert_eq!(user.role, UserRole::User);
         assert!(user.group.is_none());
     }

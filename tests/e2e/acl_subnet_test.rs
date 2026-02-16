@@ -52,7 +52,7 @@ async fn test_acl_subnet_allow() {
 }
 
 // ---------------------------------------------------------------------------
-// Test 2: ACL subnet deny - channel opens but relay fails (no echo)
+// Test 2: ACL subnet deny - channel rejected immediately by ACL pre-check
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn test_acl_subnet_deny() {
@@ -79,21 +79,15 @@ async fn test_acl_subnet_deny() {
         .unwrap();
     assert!(ok.success());
 
-    // Channel opens but relay fails inside the spawned task (CIDR deny)
-    let channel = handle
+    // Channel open should fail because CIDR deny rule matches
+    let result = handle
         .channel_open_direct_tcpip("127.0.0.1", echo_port as u32, "127.0.0.1", 12345)
-        .await
-        .unwrap();
+        .await;
 
-    let mut stream = channel.into_stream();
-    let _ = stream.write_all(b"test").await;
-
-    let mut buf = vec![0u8; 1024];
-    let result = tokio::time::timeout(Duration::from_secs(2), stream.read(&mut buf)).await;
-    match result {
-        Ok(Ok(n)) if n > 0 => panic!("should not echo data when subnet denied, got {} bytes", n),
-        _ => {} // EOF, error, or timeout — all expected
-    }
+    assert!(
+        result.is_err(),
+        "forwarding should be denied by subnet deny rule"
+    );
 }
 
 // ---------------------------------------------------------------------------

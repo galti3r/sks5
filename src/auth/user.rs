@@ -18,7 +18,6 @@ pub struct User {
     pub password_hash: Option<String>,
     pub authorized_keys: Vec<String>,
     pub parsed_authorized_keys: Vec<PublicKey>,
-    pub allow_forwarding: bool,
     pub allow_shell: bool,
     pub max_new_connections_per_minute: u32,
     pub max_bandwidth_kbps: u64,
@@ -68,7 +67,6 @@ impl std::fmt::Debug for User {
                 "authorized_keys",
                 &format!("[{} keys]", self.authorized_keys.len()),
             )
-            .field("allow_forwarding", &self.allow_forwarding)
             .field("allow_shell", &self.allow_shell)
             .field("group", &self.group)
             .field("role", &self.role)
@@ -114,22 +112,11 @@ impl User {
 
         let parsed_authorized_keys = pubkey::parse_authorized_keys(&cfg.authorized_keys);
 
-        // --- allow_forwarding: user explicit > group > user default (true) ---
-        let allow_forwarding =
-            group_cfg
-                .and_then(|g| g.allow_forwarding)
-                .map_or(cfg.allow_forwarding, |group_val| {
-                    // User config `allow_forwarding` defaults to true via serde;
-                    // if group restricts it, group wins unless user explicitly sets it.
-                    // Since serde always provides a value, we use the user's value directly
-                    // (user config is authoritative when present).
-                    cfg.allow_forwarding && group_val
-                });
-
-        // --- allow_shell: same logic ---
-        let allow_shell = group_cfg
-            .and_then(|g| g.allow_shell)
-            .map_or(cfg.allow_shell, |group_val| cfg.allow_shell && group_val);
+        // --- allow_shell: user > group > default (true) ---
+        let allow_shell = cfg
+            .allow_shell
+            .or_else(|| group_cfg.and_then(|g| g.allow_shell))
+            .unwrap_or(true);
 
         // --- max_new_connections_per_minute: user > group > user default (0) ---
         let max_new_connections_per_minute = if cfg.max_new_connections_per_minute > 0 {
@@ -237,7 +224,6 @@ impl User {
             password_hash: cfg.password_hash.clone(),
             authorized_keys: cfg.authorized_keys.clone(),
             parsed_authorized_keys,
-            allow_forwarding,
             allow_shell,
             max_new_connections_per_minute,
             max_bandwidth_kbps,
@@ -506,7 +492,7 @@ mod tests {
             password_hash: Some("hash".to_string()),
             authorized_keys: Vec::new(),
             allow_forwarding: true,
-            allow_shell: true,
+            allow_shell: Some(true),
             max_new_connections_per_minute: 0,
             max_bandwidth_kbps: 0,
             source_ips: Vec::new(),

@@ -58,7 +58,6 @@ struct SseGroupInfo {
 #[derive(Serialize)]
 struct UserInfo {
     username: String,
-    allow_forwarding: bool,
     allow_shell: bool,
 }
 
@@ -122,7 +121,6 @@ async fn build_payload(state: &AppState) -> SsePayload {
         .filter_map(|u| auth.user_store().get(u))
         .map(|u| UserInfo {
             username: u.username.clone(),
-            allow_forwarding: u.allow_forwarding,
             allow_shell: u.allow_shell,
         })
         .collect();

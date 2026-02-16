@@ -187,7 +187,8 @@ fn build_user_config(
         password_hash,
         authorized_keys,
         allow_forwarding: parse_bool_env(&format!("{prefix}ALLOW_FORWARDING"), true),
-        allow_shell: parse_bool_env(&format!("{prefix}ALLOW_SHELL"), true),
+        allow_shell: opt_env(&format!("{prefix}ALLOW_SHELL"))
+            .map(|v| matches!(v.to_ascii_lowercase().as_str(), "true" | "1" | "yes")),
         max_new_connections_per_minute: parse_env(
             &format!("{prefix}MAX_NEW_CONNECTIONS_PER_MINUTE"),
             0,
@@ -869,11 +870,11 @@ password_hash = "argon2id-fake"
                     Some(AclPolicyConfig::Deny)
                 );
                 assert_eq!(config.users[0].acl.allow, vec!["*.example.com:443"]);
-                assert!(config.users[0].allow_shell);
+                assert_eq!(config.users[0].allow_shell, Some(true));
 
                 assert_eq!(config.users[1].username, "bob");
                 assert!(!config.users[1].allow_forwarding);
-                assert!(!config.users[1].allow_shell);
+                assert_eq!(config.users[1].allow_shell, Some(false));
             },
         );
     }

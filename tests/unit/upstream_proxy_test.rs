@@ -152,7 +152,6 @@ mod resolve_priority {
             password_hash: None,
             authorized_keys: Vec::new(),
             parsed_authorized_keys: Vec::new(),
-            allow_forwarding: true,
             allow_shell: true,
             max_new_connections_per_minute: 0,
             max_bandwidth_kbps: 0,
