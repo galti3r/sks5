@@ -587,12 +587,41 @@ jobs:
           retention-days: 1
 
   # ===========================================================================
-  # Build: cross-compile for all targets (v* release only)
-  # Waits for ALL tests to pass before building
+  # Build: verify release profile compiles (PR/main)
   # ===========================================================================
   build:
-    name: Build (${{ matrix.target }})
-    needs: [verify-version, lint, test, e2e-tests, test-msrv, coverage, e2e-browser, security]
+    name: Build
+    needs: changes
+    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.ci == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-unified-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-unified-
+
+      - name: cargo build --release
+        run: cargo build --release
+
+  # ===========================================================================
+  # Release Build: cross-compile for all targets (v* release only)
+  # Waits for ALL tests to pass before building
+  # ===========================================================================
+  release-build:
+    name: Release Build
+    needs: [verify-version, build, lint, test, e2e-tests, test-msrv, coverage, e2e-browser, security]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     strategy:
@@ -756,7 +785,7 @@ jobs:
   # ===========================================================================
   release:
     name: GitHub Release
-    needs: [build, extras, sbom, security]
+    needs: [release-build, extras, sbom, security]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -846,7 +875,7 @@ jobs:
   # ===========================================================================
   provenance:
     name: SLSA Provenance
-    needs: [build]
+    needs: [release-build]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -879,13 +908,13 @@ jobs:
   # beta-* tags: compiles from source with cross (build job is skipped).
   # ===========================================================================
   docker:
-    name: Docker (${{ startsWith(github.ref, 'refs/tags/v') && 'Release' || 'Beta' }})
-    needs: [build, lint, test, e2e-tests]
+    name: Docker Publish
+    needs: [release-build, lint, test, e2e-tests]
     if: |
       !cancelled() && startsWith(github.ref, 'refs/tags/') &&
       needs.lint.result == 'success' && needs.test.result == 'success' &&
       needs.e2e-tests.result == 'success' &&
-      (needs.build.result == 'success' || needs.build.result == 'skipped')
+      (needs.release-build.result == 'success' || needs.release-build.result == 'skipped')
     runs-on: ubuntu-latest
     permissions:
       packages: write
@@ -1023,7 +1052,7 @@ jobs:
   # ===========================================================================
   publish-crate:
     name: Publish to crates.io
-    needs: [build]
+    needs: [release-build]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
