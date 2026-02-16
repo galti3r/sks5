@@ -12,3 +12,6 @@ rules:
       - perf
       - chore
       - ci
+  # Allow sentence-case for Dependabot commits (e.g. "chore(deps): Bump ...")
+  subject-case:
+    - 0
