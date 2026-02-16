@@ -1119,6 +1119,32 @@ jobs:
             sed -i "s/DOLLARSIGN{{/${D}{{/g" .github/workflows/update-formula.yml
           fi
 
+          # --- README: always regenerate with current version ---
+          cat > README.md << README
+          # Homebrew Tap for sks5
+
+          Lightweight SSH server with SOCKS5 proxy, shell emulation, and ACL.
+
+          ## Install
+
+          \`\`\`bash
+          brew tap galti3r/sks5
+          brew install sks5
+          \`\`\`
+
+          ## Current version
+
+          **${VERSION}** — [Release notes](https://github.com/galti3r/sks5/releases/tag/v${VERSION})
+
+          ## Links
+
+          - [Main repository](https://github.com/galti3r/sks5)
+          - [Documentation](https://github.com/galti3r/sks5#readme)
+          - [Issues](https://github.com/galti3r/sks5/issues)
+          README
+          # Remove leading whitespace from heredoc
+          sed -i 's/^          //' README.md
+
           # --- Commit + push (idempotent) ---
           git add -A
           if git diff --cached --quiet; then
