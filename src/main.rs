@@ -12,21 +12,7 @@ use sks5::config::types::{
 };
 
 fn setup_logging(level: &str, format: LogFormat) {
-    use tracing_subscriber::EnvFilter;
-
-    let filter = EnvFilter::try_new(level).unwrap_or_else(|_| EnvFilter::new("info"));
-
-    match format {
-        LogFormat::Json => {
-            tracing_subscriber::fmt()
-                .json()
-                .with_env_filter(filter)
-                .init();
-        }
-        LogFormat::Pretty => {
-            tracing_subscriber::fmt().with_env_filter(filter).init();
-        }
-    }
+    sks5::logging::setup_logging(level, format);
 }
 
 fn main() -> Result<()> {

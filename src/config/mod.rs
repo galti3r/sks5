@@ -108,6 +108,25 @@ fn validate_global_acl(config: &AppConfig) -> Result<()> {
         );
     }
 
+    // Warn when deny rules are 100% hostname-based (no CIDR) with allow policy.
+    // Users can bypass hostname deny rules by sending raw IP addresses.
+    if config.acl.default_policy == types::AclPolicyConfig::Allow && !config.acl.deny.is_empty() {
+        let all_hostname = config.acl.deny.iter().all(|rule| {
+            matches!(
+                acl::AclRule::parse(rule),
+                Ok(acl::AclRule::HostPattern { .. })
+            )
+        });
+        if all_hostname {
+            tracing::warn!(
+                "Global ACL deny rules are all hostname-based with default_policy='allow'. \
+                 Users can bypass these rules by connecting with raw IP addresses. \
+                 Consider using default_policy=\"deny\" with an allow list, \
+                 or adding CIDR deny rules for the target IP ranges."
+            );
+        }
+    }
+
     Ok(())
 }
 
@@ -161,6 +180,28 @@ fn validate_users(config: &AppConfig) -> Result<()> {
         for rule in &user.acl.deny {
             acl::AclRule::parse(rule)
                 .with_context(|| format!("user '{}' ACL deny rule: {}", user.username, rule))?;
+        }
+
+        // Warn per-user hostname-only deny rules with allow policy
+        let effective_policy = user
+            .acl
+            .default_policy
+            .as_ref()
+            .unwrap_or(&config.acl.default_policy);
+        if *effective_policy == types::AclPolicyConfig::Allow && !user.acl.deny.is_empty() {
+            let all_hostname = user.acl.deny.iter().all(|rule| {
+                matches!(
+                    acl::AclRule::parse(rule),
+                    Ok(acl::AclRule::HostPattern { .. })
+                )
+            });
+            if all_hostname {
+                tracing::warn!(
+                    "User '{}' ACL deny rules are all hostname-based with default_policy='allow'. \
+                     Connections using raw IP addresses will bypass these rules.",
+                    user.username
+                );
+            }
         }
     }
     Ok(())

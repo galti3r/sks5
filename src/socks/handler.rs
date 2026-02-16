@@ -72,7 +72,9 @@ pub async fn handle_connection(mut stream: TcpStream, ctx: Arc<AppContext>) -> R
                 return Err(e);
             }
             Err(_) => {
-                warn!(conn_id = %conn_id, peer = %peer_addr, "SOCKS5 handshake timeout");
+                if ctx.config.logging.log_denied_connections {
+                    warn!(conn_id = %conn_id, peer = %peer_addr, "SOCKS5 handshake timeout");
+                }
             }
         }
 
@@ -248,7 +250,9 @@ pub async fn handle_tls_connection(
             Ok(Ok(None)) => {}
             Ok(Err(e)) => return Err(e),
             Err(_) => {
-                warn!(conn_id = %conn_id, peer = %peer_addr, "SOCKS5 TLS handshake timeout");
+                if ctx.config.logging.log_denied_connections {
+                    warn!(conn_id = %conn_id, peer = %peer_addr, "SOCKS5 TLS handshake timeout");
+                }
             }
         }
 
@@ -270,7 +274,9 @@ async fn socks5_handshake<S: AsyncRead + AsyncWrite + Unpin>(
 ) -> Result<Option<RelayInfo>> {
     // Phase 1 (pre-auth): Single security read for ban check and pre-auth rate limit
     if let Err(reason) = ctx.security.read().await.pre_auth_check(&peer_addr.ip()) {
-        warn!(conn_id = %conn_id, ip = %peer_addr.ip(), reason = %reason, "SOCKS5 connection rejected");
+        if ctx.config.logging.log_denied_connections {
+            warn!(conn_id = %conn_id, ip = %peer_addr.ip(), reason = %reason, "SOCKS5 connection rejected");
+        }
         let metric_reason = if reason == "banned IP" {
             let _ = protocol::read_greeting(stream).await;
             let _ = protocol::send_method_selection(stream, protocol::AUTH_NO_ACCEPTABLE).await;
@@ -346,7 +352,9 @@ async fn socks5_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         } else {
             "password"
         };
-        warn!(conn_id = %conn_id, user = %creds.username, ip = %peer_addr, "SOCKS5 auth failed");
+        if ctx.config.logging.log_denied_connections {
+            warn!(conn_id = %conn_id, user = %creds.username, ip = %peer_addr, "SOCKS5 auth failed");
+        }
         socks_auth::send_auth_result(stream, false).await?;
         // Consolidated security read: record auth failure
         {
@@ -387,13 +395,17 @@ async fn socks5_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     let user = user_opt.ok_or_else(|| anyhow::anyhow!("user disappeared after auth"))?;
 
     if !user.is_source_ip_allowed(&peer_addr.ip()) {
-        warn!(conn_id = %conn_id, user = %creds.username, ip = %peer_addr.ip(), "SOCKS5 connection from IP not in user's allowed source_ips");
+        if ctx.config.logging.log_denied_connections {
+            warn!(conn_id = %conn_id, user = %creds.username, ip = %peer_addr.ip(), "SOCKS5 connection from IP not in user's allowed source_ips");
+        }
         return Ok(None);
     }
 
     // Time-based access check
     if !user.check_time_access() {
-        warn!(conn_id = %conn_id, user = %creds.username, ip = %peer_addr.ip(), "SOCKS5 connection denied: outside allowed access hours/days");
+        if ctx.config.logging.log_denied_connections {
+            warn!(conn_id = %conn_id, user = %creds.username, ip = %peer_addr.ip(), "SOCKS5 connection denied: outside allowed access hours/days");
+        }
         ctx.metrics.record_connection_rejected("time_access_denied");
         return Ok(None);
     }
@@ -405,7 +417,9 @@ async fn socks5_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         .await
         .check_rate_limit(&creds.username, user.max_new_connections_per_minute)
     {
-        warn!(conn_id = %conn_id, user = %creds.username, limit = user.max_new_connections_per_minute, "SOCKS5 rate limit exceeded (legacy)");
+        if ctx.config.logging.log_denied_connections {
+            warn!(conn_id = %conn_id, user = %creds.username, limit = user.max_new_connections_per_minute, "SOCKS5 rate limit exceeded (legacy)");
+        }
         ctx.audit.log_rate_limit_exceeded_cid(
             &creds.username,
             peer_addr,
@@ -422,19 +436,24 @@ async fn socks5_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         &user.rate_limits,
         &ctx.config.limits,
     ) {
-        warn!(conn_id = %conn_id, user = %creds.username, reason = %reason, "SOCKS5 quota rate limit exceeded");
+        if ctx.config.logging.log_denied_connections {
+            warn!(conn_id = %conn_id, user = %creds.username, reason = %reason, "SOCKS5 quota rate limit exceeded");
+        }
         ctx.audit
             .log_rate_limit_exceeded_cid(&creds.username, peer_addr, &reason, conn_id);
         ctx.metrics.record_connection_rejected("rate_limited");
         return Ok(None);
     }
 
-    // Record connection in quota tracker (checks daily/monthly quotas)
+    // Check connection quotas and record attempt in rate windows
+    // (cumulative counters are incremented only after successful connect)
     if let Err(reason) = ctx
         .quota_tracker
-        .record_connection(&creds.username, user.quotas.as_ref())
+        .check_and_record_connection_attempt(&creds.username, user.quotas.as_ref())
     {
-        warn!(conn_id = %conn_id, user = %creds.username, reason = %reason, "SOCKS5 connection quota exceeded");
+        if ctx.config.logging.log_denied_connections {
+            warn!(conn_id = %conn_id, user = %creds.username, reason = %reason, "SOCKS5 connection quota exceeded");
+        }
         ctx.audit.log_quota_exceeded(&creds.username, &reason, 0, 0);
         ctx.metrics
             .record_error(crate::metrics::error_types::QUOTA_EXCEEDED);
@@ -447,7 +466,9 @@ async fn socks5_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         .quota_tracker
         .check_bandwidth_quota(&creds.username, user.quotas.as_ref())
     {
-        warn!(conn_id = %conn_id, user = %creds.username, reason = %reason, "SOCKS5 bandwidth quota already exhausted");
+        if ctx.config.logging.log_denied_connections {
+            warn!(conn_id = %conn_id, user = %creds.username, reason = %reason, "SOCKS5 bandwidth quota already exhausted");
+        }
         ctx.audit.log_quota_exceeded(&creds.username, &reason, 0, 0);
         ctx.metrics
             .record_error(crate::metrics::error_types::QUOTA_EXCEEDED);
@@ -480,6 +501,8 @@ async fn socks5_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         .await
     {
         Ok((target_stream, resolved_addr, guard)) => {
+            // Record successful connection in cumulative counters
+            ctx.quota_tracker.record_connection_success(&creds.username);
             let bind_addr = match resolved_addr {
                 std::net::SocketAddr::V4(a) => {
                     protocol::TargetAddr::Ipv4(a.ip().octets(), a.port())

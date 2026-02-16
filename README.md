@@ -9,6 +9,8 @@
   <img src="https://galti3r.github.io/sks5/demo.gif" alt="sks5 demo" width="800">
 </p>
 
+> Generated with [VHS](https://github.com/charmbracelet/vhs) from [`contrib/demo.tape`](contrib/demo.tape). Regenerate locally: `vhs contrib/demo.tape`
+
 ```mermaid
 flowchart LR
     Client["SSH Client<br/><code>ssh -D / -L</code>"]
@@ -134,6 +136,16 @@ sks5 quick-start --password demo --socks5-listen 0.0.0.0:1080
 sks5 quick-start --password demo --save-config config.toml
 ```
 
+### Interactive Wizard
+
+```bash
+sks5 wizard
+```
+
+Full-screen interactive wizard with 14 configuration sections (Server, Users, ACL, Security, Logging, Quotas, etc.). Navigate with arrow keys, configure all options, then save and validate.
+
+For non-interactive use: `sks5 wizard --non-interactive --output config.toml`
+
 ### Generate a config file
 
 ```bash
@@ -185,7 +197,7 @@ See [config.example.toml](config.example.toml) for a complete configuration refe
 | `[shell]` | No | Hostname, prompt, colors, autocomplete |
 | `[limits]` | No | Connection limits, timeouts, idle warning |
 | `[security]` | No | Auto-ban, IP guard, TOTP, IP reputation, CA keys |
-| `[logging]` | No | Log level, format, audit log, flow logs |
+| `[logging]` | No | Log level, format, audit log, flow logs, `log_denied_connections` |
 | `[metrics]` | No | Prometheus endpoint |
 | `[api]` | No | REST API listen address, bearer token |
 | `[geoip]` | No | GeoIP country filtering |
@@ -237,7 +249,7 @@ Server uptime: {uptime}
 """
 ```
 
-Available variables: `{user}`, `{auth_method}`, `{source_ip}`, `{connections}`, `{acl_policy}`, `{denied}`, `{expires_at}`, `{bandwidth_used}`, `{bandwidth_limit}`, `{last_login}`, `{uptime}`, `{version}`, `{group}`, `{role}`.
+Available variables: `{user}`, `{auth_method}`, `{source_ip}`, `{connections}`, `{acl_policy}`, `{allowed}`, `{denied}`, `{expires_at}`, `{bandwidth_used}`, `{bandwidth_limit}`, `{last_login}`, `{uptime}`, `{version}`, `{group}`, `{role}`.
 
 Per-user/group MOTD overrides the global one.
 
@@ -256,13 +268,14 @@ Per-user/group MOTD overrides the global one.
 | `show status` | Session info with live connection count | `show_status` |
 | `show history` | Connection summary (today/this month) | `show_history` |
 | `show fingerprint` | SSH key fingerprint (from auth) | `show_fingerprint` |
+| `show quota` | Quota usage (daily/monthly bandwidth, connections) | `show_quota` |
 | `test host:port` | TCP connectivity test | `test_command` |
 | `ping host` | Simulated ICMP ping | `ping_command` |
 | `resolve hostname` | DNS lookup | `resolve_command` |
 | `bookmark add/list/del` | Manage host:port bookmarks | `bookmark_command` |
 | `alias add/list/del` | Command aliases | `alias_command` |
 
-Permissions are configured via `shell_permissions` at user, group, or global level.
+Permissions are configured via `shell_permissions` at user, group, or global level. Additional MOTD visibility flags: `show_role`, `show_group`, `show_expires`, `show_source_ip`, `show_auth_method`, `show_uptime`, `show_quota`.
 
 </details>
 
@@ -360,11 +373,11 @@ sks5 supports full configuration via environment variables for Docker/Kubernetes
 | Variable | Description |
 |----------|-------------|
 | `SKS5_USER_<N>_USERNAME` | Username (N = 0, 1, 2, ...) |
-| `SKSKS5_USER_<N>_PASSWORD_HASH` | Argon2id password hash |
+| `SKS5_USER_<N>_PASSWORD_HASH` | Argon2id password hash |
 | `SKS5_USER_<N>_ALLOW_FORWARDING` | Allow forwarding (true/false) |
 | `SKS5_USER_<N>_ALLOW_SHELL` | Allow shell access (true/false) |
 | `SKS5_USER_<N>_TOTP_ENABLED` | Enable TOTP 2FA |
-| `SKSKS5_USER_<N>_TOTP_SECRET` | Base32-encoded TOTP secret |
+| `SKS5_USER_<N>_TOTP_SECRET` | Base32-encoded TOTP secret |
 | `SKS5_USER_<N>_MAX_BANDWIDTH_KBPS` | Per-connection bandwidth cap |
 | `SKS5_USER_<N>_MAX_AGGREGATE_BANDWIDTH_KBPS` | Total bandwidth cap |
 
@@ -382,12 +395,29 @@ sks5 supports full configuration via environment variables for Docker/Kubernetes
 
 The HTTP API is protected by Bearer token (configured in `api.token`).
 
+### Usage
+
+```bash
+# Server status
+curl -H "Authorization: Bearer <token>" http://localhost:8080/api/status
+
+# List users
+curl -H "Authorization: Bearer <token>" http://localhost:8080/api/users
+
+# Toggle maintenance mode
+curl -X POST -H "Authorization: Bearer <token>" http://localhost:8080/api/maintenance
+
+# Open dashboard in browser (token is passed client-side for JS to use)
+open "http://localhost:8080/dashboard?token=<token>"
+```
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/health` | Health check (no auth) |
+| GET | `/api/health` | Health check with detail |
 | GET | `/api/status` | Server status (uptime, connections, users) |
 | GET | `/api/users` | List users (no password hashes) |
 | GET | `/api/users?details=true` | Extended user info with connection stats |
+| GET | `/api/users/{username}` | Full user detail (role, ACL, shell permissions, quotas, live stats) |
 | GET | `/api/connections` | Active connections per user |
 | GET | `/api/bans` | Banned IPs |
 | DELETE | `/api/bans/:ip` | Unban an IP |
@@ -400,7 +430,14 @@ The HTTP API is protected by Bearer token (configured in `api.token`).
 | GET | `/api/quotas/:username` | Quota usage detail for a specific user |
 | POST | `/api/quotas/:username/reset` | Reset quota counters for a user |
 | GET | `/api/ssh-config` | Generate SSH config snippet (`?user=&host=`) |
-| GET | `/api/events` | SSE stream (token via `?token=` or `?ticket=`) |
+| GET | `/api/groups` | List user groups |
+| GET | `/api/groups/{name}` | Get group details |
+| GET | `/api/sessions` | List active sessions |
+| GET | `/api/sessions/{username}` | Get sessions for a user |
+| GET | `/api/backup` | Backup configuration |
+| POST | `/api/restore` | Restore configuration |
+| GET | `/api/events` | SSE stream (auth via `?ticket=` HMAC ticket) |
+| GET | `/api/ws` | WebSocket real-time stream |
 | GET | `/dashboard` | Web dashboard (no auth required) |
 
 ## Health Check
@@ -517,8 +554,8 @@ make bench             # Criterion benchmarks (ACL, password, config, SOCKS5)
 
 | Category | Tests | Description |
 |----------|------:|-------------|
-| Unit (lib) | 387 | Config, ACL, auth, shell, SOCKS5 protocol, proxy, security, show commands, session, alerting, quotas, groups, roles, connection pool, MOTD, IP reputation |
-| Unit (standalone) | 941 | Auth service, CLI, config validation, connectors, geoip, webhooks, pre-auth, source IP, audit, protocol fuzz, SSH keys, pubkey, DNS cache, metrics, SSE ticket, IP rate limiter, SOCKS5 TLS, webhook retry, API users, SOCKS5 timeout, proxy details, smart retry, time access |
+| Unit (lib) | 411 | Config, ACL, auth, shell, SOCKS5 protocol, proxy, security, show commands, session, alerting, quotas (split flow), groups, roles, connection pool, MOTD (allowed rules), IP reputation |
+| Unit (standalone) | 1103 | Auth service, CLI, config validation, connectors, geoip, webhooks, pre-auth, source IP, audit, protocol fuzz, SSH keys, pubkey, DNS cache, metrics, SSE ticket, IP rate limiter, SOCKS5 TLS, webhook retry, API users, SOCKS5 timeout, proxy details, smart retry, time access |
 | E2E - Auth | 5 | Password success/failure, unknown user, shell prompt, retry |
 | E2E - Shell | 16 | Exec commands, dangerous commands blocked, interactive shell |
 | E2E - Shell commands | 18 | show status/bandwidth/connections, help, echo, alias, unknown commands |
@@ -526,7 +563,7 @@ make bench             # Criterion benchmarks (ACL, password, config, SOCKS5)
 | E2E - Forwarding | 3 | Local forward, large data, denied user |
 | E2E - Rejection | 8 | SFTP, reverse forward, bash/sh/nc/rsync blocked |
 | E2E - SOCKS5 | 18 | Auth, forwarding, concurrency, anti-SSRF, standalone, timeout |
-| E2E - API | 39 | Health, users, connections, bans, maintenance, auth, dashboard, SSE, groups, sessions, audit |
+| E2E - API | 42 | Health, users, user detail, connections, bans, maintenance, auth, dashboard, SSE, groups, sessions, audit |
 | E2E - Quota API | 10 | List quotas, user detail, reset, auth, enforcement, rate limiting, Prometheus metrics |
 | E2E - Reload | 3 | Valid/invalid config reload, auth required |
 | E2E - Status | 3 | Health, Prometheus metrics, maintenance mode |
@@ -538,8 +575,8 @@ make bench             # Criterion benchmarks (ACL, password, config, SOCKS5)
 | E2E - SSE/WS | 12 | SSE ticket auth, SSE payloads, WebSocket connections |
 | E2E - Backup/Restore | 6 | Config backup and restore via API |
 | E2E - CLI | 10 | CLI subcommands, completions, help output |
-| E2E - Browser | 9 | Dashboard E2E with Chrome Headless (Podman) |
-| **Total** | **~940+** | **1517 test functions across all binaries** |
+| E2E - Browser | 10 | Dashboard E2E with Chrome Headless (Podman), user detail modal |
+| **Total** | **~1550+** | **Unit + E2E test functions across all binaries** |
 
 ## Security
 

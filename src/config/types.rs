@@ -270,7 +270,11 @@ fn default_prompt() -> String {
     "$ ".to_string()
 }
 
-/// Shell command permissions — configurable at global/group/user level
+/// Shell command permissions — configurable at global/group/user level.
+///
+/// These flags control both MOTD visibility and shell command access:
+/// - When false, the corresponding MOTD placeholder is replaced with empty string
+/// - When false, the corresponding `show` subcommand returns "Permission denied"
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ShellPermissions {
     #[serde(default = "default_true")]
@@ -297,6 +301,24 @@ pub struct ShellPermissions {
     pub alias_command: bool,
     #[serde(default = "default_true")]
     pub show_quota: bool,
+    /// Controls {role} in MOTD and role line in `show status`
+    #[serde(default = "default_true")]
+    pub show_role: bool,
+    /// Controls {group} in MOTD and group line in `show status`
+    #[serde(default = "default_true")]
+    pub show_group: bool,
+    /// Controls {expires_at} in MOTD and expires line in `show status`
+    #[serde(default = "default_true")]
+    pub show_expires: bool,
+    /// Controls {source_ip} in MOTD and source IP line in `show status`
+    #[serde(default = "default_true")]
+    pub show_source_ip: bool,
+    /// Controls {auth_method} in MOTD and auth line in `show status`
+    #[serde(default = "default_true")]
+    pub show_auth_method: bool,
+    /// Controls {uptime} in MOTD and uptime line in `show status`
+    #[serde(default = "default_true")]
+    pub show_uptime: bool,
 }
 
 impl Default for ShellPermissions {
@@ -314,6 +336,12 @@ impl Default for ShellPermissions {
             bookmark_command: true,
             alias_command: true,
             show_quota: true,
+            show_role: true,
+            show_group: true,
+            show_expires: true,
+            show_source_ip: true,
+            show_auth_method: true,
+            show_uptime: true,
         }
     }
 }
@@ -910,6 +938,11 @@ pub struct LoggingConfig {
     /// Enable connection flow logs (detailed per-step timing)
     #[serde(default)]
     pub connection_flow_logs: bool,
+    /// Log denied/rejected connections (default true).
+    /// Set to false to suppress warn-level logs for denied connections
+    /// while still recording metrics and enforcing limits.
+    #[serde(default = "default_true")]
+    pub log_denied_connections: bool,
 }
 
 impl Default for LoggingConfig {
@@ -921,6 +954,7 @@ impl Default for LoggingConfig {
             audit_max_size_mb: default_audit_max_size_mb(),
             audit_max_files: default_audit_max_files(),
             connection_flow_logs: false,
+            log_denied_connections: true,
         }
     }
 }

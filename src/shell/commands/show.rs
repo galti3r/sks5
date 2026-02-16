@@ -164,43 +164,59 @@ fn show_status(ctx: &ShellContext) -> CommandResult {
         "  User:        {}\r\n",
         color(CYAN, &ctx.username, colors)
     ));
-    output.push_str(&format!("  Role:        {}\r\n", ctx.role));
-    if let Some(ref group) = ctx.group {
-        output.push_str(&format!("  Group:       {}\r\n", group));
+    if ctx.permissions.show_role {
+        output.push_str(&format!("  Role:        {}\r\n", ctx.role));
     }
-    output.push_str(&format!("  Auth:        {}\r\n", ctx.auth_method));
-    output.push_str(&format!("  Source IP:   {}\r\n", ctx.source_ip));
-    output.push_str(&format!("  Uptime:      {}\r\n", ctx.uptime()));
+    if ctx.permissions.show_group {
+        if let Some(ref group) = ctx.group {
+            output.push_str(&format!("  Group:       {}\r\n", group));
+        }
+    }
+    if ctx.permissions.show_auth_method {
+        output.push_str(&format!("  Auth:        {}\r\n", ctx.auth_method));
+    }
+    if ctx.permissions.show_source_ip {
+        output.push_str(&format!("  Source IP:   {}\r\n", ctx.source_ip));
+    }
+    if ctx.permissions.show_uptime {
+        output.push_str(&format!("  Uptime:      {}\r\n", ctx.uptime()));
+    }
 
     // Live connections from proxy engine
-    let conn_count = ctx
-        .proxy_engine
-        .as_ref()
-        .map(|pe| pe.user_connections(&ctx.username))
-        .unwrap_or(0);
-    output.push_str(&format!("  Connections: {} active\r\n", conn_count));
+    if ctx.permissions.show_connections {
+        let conn_count = ctx
+            .proxy_engine
+            .as_ref()
+            .map(|pe| pe.user_connections(&ctx.username))
+            .unwrap_or(0);
+        output.push_str(&format!("  Connections: {} active\r\n", conn_count));
+    }
 
     // Expiry
-    match &ctx.expires_at {
-        Some(exp) => {
-            output.push_str(&format!(
-                "  Expires:     {}\r\n",
-                color(YELLOW, exp, colors)
-            ));
-        }
-        None => {
-            output.push_str("  Expires:     never\r\n");
+    if ctx.permissions.show_expires {
+        match &ctx.expires_at {
+            Some(exp) => {
+                output.push_str(&format!(
+                    "  Expires:     {}\r\n",
+                    color(YELLOW, exp, colors)
+                ));
+            }
+            None => {
+                output.push_str("  Expires:     never\r\n");
+            }
         }
     }
 
     // Rate limit / bandwidth
-    if ctx.max_bandwidth_kbps > 0 {
-        output.push_str(&format!(
-            "  Rate limit:  {} kbps\r\n",
-            ctx.max_bandwidth_kbps
-        ));
-    } else {
-        output.push_str("  Rate limit:  unlimited\r\n");
+    if ctx.permissions.show_bandwidth {
+        if ctx.max_bandwidth_kbps > 0 {
+            output.push_str(&format!(
+                "  Rate limit:  {} kbps\r\n",
+                ctx.max_bandwidth_kbps
+            ));
+        } else {
+            output.push_str("  Rate limit:  unlimited\r\n");
+        }
     }
 
     CommandResult::output(output)

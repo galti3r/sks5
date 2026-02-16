@@ -26,7 +26,7 @@ use axum::{
     extract::{DefaultBodyLimit, MatchedPath, State},
     http::{header, StatusCode},
     middleware::{self, Next},
-    response::IntoResponse,
+    response::{IntoResponse, Redirect},
     routing::{delete, get, post},
     Router,
 };
@@ -510,11 +510,23 @@ pub async fn start_api_server(
     state: AppState,
     shutdown: tokio_util::sync::CancellationToken,
 ) -> anyhow::Result<()> {
+    let listener = tokio::net::TcpListener::bind(listen_addr).await?;
+    info!(addr = %listen_addr, "API server listening");
+    start_api_server_on_listener(listener, state, shutdown).await
+}
+
+/// Start the API server on a pre-bound listener (avoids TOCTOU port races in tests).
+pub async fn start_api_server_on_listener(
+    listener: tokio::net::TcpListener,
+    state: AppState,
+    shutdown: tokio_util::sync::CancellationToken,
+) -> anyhow::Result<()> {
     // Authenticated routes
     let authed = Router::new()
         .route("/api/health", get(api_health_handler))
         .route("/api/status", get(status_handler))
         .route("/api/users", get(users::list_users))
+        .route("/api/users/{username}", get(users::get_user_detail))
         .route("/api/connections", get(connections::list_connections))
         .route("/api/bans", get(bans::list_bans))
         .route("/api/bans/{ip}", delete(bans::delete_ban))
@@ -547,6 +559,7 @@ pub async fn start_api_server(
     let app = Router::new()
         .route("/livez", get(|| async { "ok" }))
         .route("/readyz", get(readyz_handler))
+        .route("/", get(|| async { Redirect::permanent("/dashboard") }))
         .route("/dashboard", get(dashboard::serve_dashboard))
         .merge(authed)
         .layer(middleware::from_fn_with_state(
@@ -556,8 +569,6 @@ pub async fn start_api_server(
         .layer(DefaultBodyLimit::max(64 * 1024))
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind(listen_addr).await?;
-    info!(addr = %listen_addr, "API server listening");
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown.cancelled_owned())
         .await?;

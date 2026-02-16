@@ -50,6 +50,21 @@
   .conn-badge.sse { background: rgba(79,140,255,0.15); color: var(--accent); }
   .conn-badge.poll { background: rgba(255,217,61,0.15); color: var(--yellow); }
   :root.light .log-area { background: #e8eaf0; }
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; justify-content: center; align-items: flex-start; padding-top: 5vh; overflow-y: auto; }
+  .modal-overlay.active { display: flex; }
+  .modal { background: var(--card); border: 1px solid var(--border); border-radius: 10px; width: 680px; max-width: 95vw; max-height: 90vh; overflow-y: auto; padding: 1.5rem; position: relative; }
+  .modal-close { position: absolute; top: 0.8rem; right: 1rem; background: none; border: none; color: var(--dim); font-size: 1.4rem; cursor: pointer; line-height: 1; }
+  .modal-close:hover { color: var(--text); }
+  .modal h2 { font-size: 1.1rem; margin-bottom: 1rem; padding-right: 2rem; }
+  .modal-section { margin-bottom: 1rem; }
+  .modal-section h3 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--dim); margin-bottom: 0.4rem; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; }
+  .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.2rem 1.5rem; font-size: 0.8rem; }
+  .detail-grid dt { color: var(--dim); }
+  .detail-grid dd { margin: 0; word-break: break-all; }
+  .detail-list { font-size: 0.8rem; list-style: none; padding: 0; }
+  .detail-list li { padding: 0.15rem 0; font-family: monospace; font-size: 0.75rem; word-break: break-all; }
+  .user-link { color: var(--accent); cursor: pointer; text-decoration: none; }
+  .user-link:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
@@ -119,6 +134,14 @@
   <div class="panel fullwidth">
     <h2>Audit Log (live)</h2>
     <div class="log-area" id="logArea"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="userModal" onclick="if(event.target===this)closeUserModal()">
+  <div class="modal">
+    <button class="modal-close" onclick="closeUserModal()">&times;</button>
+    <h2 id="modalTitle">User Detail</h2>
+    <div id="modalContent"><p style="color:var(--dim);font-size:0.85rem">Loading...</p></div>
   </div>
 </div>
 
@@ -202,7 +225,7 @@ function updateUI(data) {
   if (data.users) {
     const conns = data.connections || {};
     const tb = document.getElementById('userTable');
-    tb.innerHTML = data.users.map(u => '<tr><td>'+u.username+'</td><td>'+(u.allow_shell?'Yes':'No')+'</td><td>'+(conns[u.username]||0)+'</td></tr>').join('');
+    tb.innerHTML = data.users.map(u => '<tr><td><a class="user-link" onclick="openUserModal(\''+esc(u.username)+'\')">'+esc(u.username)+'</a></td><td>'+(u.allow_shell?'Yes':'No')+'</td><td>'+(conns[u.username]||0)+'</td></tr>').join('');
   }
 
   // Bans
@@ -440,6 +463,132 @@ async function kick(username) {
       document.getElementById('actionMsg').textContent = 'Kicked '+username;
     }
   } catch(e) { document.getElementById('actionMsg').textContent = 'Error: '+e.message; }
+}
+
+// --- HTML escape helper ---
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// --- User detail modal ---
+function closeUserModal() { document.getElementById('userModal').classList.remove('active'); }
+
+async function openUserModal(username) {
+  const modal = document.getElementById('userModal');
+  const title = document.getElementById('modalTitle');
+  const content = document.getElementById('modalContent');
+  title.textContent = 'User: ' + username;
+  content.innerHTML = '<p style="color:var(--dim);font-size:0.85rem">Loading...</p>';
+  modal.classList.add('active');
+  try {
+    const res = await fetch(BASE+'/api/users/'+encodeURIComponent(username), {headers});
+    if (!res.ok) { content.innerHTML = '<p style="color:var(--red)">Error: '+res.status+'</p>'; return; }
+    const json = await res.json();
+    const u = json.data || json;
+    content.innerHTML = renderUserDetail(u);
+  } catch(e) {
+    content.innerHTML = '<p style="color:var(--red)">Failed to load: '+esc(e.message)+'</p>';
+  }
+}
+
+function renderUserDetail(u) {
+  let html = '';
+
+  // Identity
+  html += '<div class="modal-section"><h3>Identity</h3><dl class="detail-grid">';
+  html += '<dt>Role</dt><dd>'+esc(u.role)+'</dd>';
+  html += '<dt>Group</dt><dd>'+(u.group ? esc(u.group) : '<span style="color:var(--dim)">none</span>')+'</dd>';
+  html += '<dt>Shell</dt><dd>'+(u.allow_shell ? '<span class="badge on">Yes</span>' : '<span class="badge off">No</span>')+'</dd>';
+  html += '<dt>Colors</dt><dd>'+(u.colors ? 'Yes' : 'No')+'</dd>';
+  html += '<dt>Expires</dt><dd>'+(u.expires_at ? esc(u.expires_at) : '<span style="color:var(--dim)">never</span>')+'</dd>';
+  html += '</dl></div>';
+
+  // Auth
+  html += '<div class="modal-section"><h3>Authentication</h3><dl class="detail-grid">';
+  html += '<dt>Password</dt><dd>'+(u.has_password ? '<span class="badge on">Set</span>' : '<span class="badge off">None</span>')+'</dd>';
+  html += '<dt>TOTP</dt><dd>'+(u.totp_enabled ? '<span class="badge on">Enabled</span>' : '<span class="badge off">Disabled</span>')+'</dd>';
+  if (u.auth_methods) { html += '<dt>Methods</dt><dd>'+esc(u.auth_methods.join(', '))+'</dd>'; }
+  html += '</dl>';
+  if (u.authorized_keys_fingerprints && u.authorized_keys_fingerprints.length > 0) {
+    html += '<p style="font-size:0.75rem;color:var(--dim);margin-top:0.4rem">SSH Keys:</p><ul class="detail-list">';
+    u.authorized_keys_fingerprints.forEach(fp => { html += '<li>'+esc(fp)+'</li>'; });
+    html += '</ul>';
+  }
+  html += '</div>';
+
+  // Network
+  html += '<div class="modal-section"><h3>Network &amp; Limits</h3><dl class="detail-grid">';
+  html += '<dt>Source IPs</dt><dd>'+(u.source_ips.length ? esc(u.source_ips.join(', ')) : '<span style="color:var(--dim)">any</span>')+'</dd>';
+  html += '<dt>Max Connections</dt><dd>'+u.max_connections+'</dd>';
+  html += '<dt>Max BW (per-conn)</dt><dd>'+(u.max_bandwidth_kbps ? u.max_bandwidth_kbps+' Kbps' : 'unlimited')+'</dd>';
+  html += '<dt>Max BW (aggregate)</dt><dd>'+(u.max_aggregate_bandwidth_kbps ? u.max_aggregate_bandwidth_kbps+' Kbps' : 'unlimited')+'</dd>';
+  html += '<dt>Max New Conn/min</dt><dd>'+u.max_new_connections_per_minute+'</dd>';
+  html += '<dt>Idle Warning</dt><dd>'+u.idle_warning_secs+'s</dd>';
+  html += '<dt>Connect Retry</dt><dd>'+u.connect_retry+' (delay '+u.connect_retry_delay_ms+'ms)</dd>';
+  html += '</dl></div>';
+
+  // ACL
+  html += '<div class="modal-section"><h3>ACL</h3><dl class="detail-grid">';
+  html += '<dt>Default Policy</dt><dd>'+esc(u.acl.default_policy)+'</dd>';
+  html += '</dl>';
+  if (u.acl.allow_rules.length) {
+    html += '<p style="font-size:0.75rem;color:var(--dim);margin-top:0.3rem">Allow:</p><ul class="detail-list">';
+    u.acl.allow_rules.forEach(r => { html += '<li style="color:var(--green)">'+esc(r)+'</li>'; });
+    html += '</ul>';
+  }
+  if (u.acl.deny_rules.length) {
+    html += '<p style="font-size:0.75rem;color:var(--dim);margin-top:0.3rem">Deny:</p><ul class="detail-list">';
+    u.acl.deny_rules.forEach(r => { html += '<li style="color:var(--red)">'+esc(r)+'</li>'; });
+    html += '</ul>';
+  }
+  html += '</div>';
+
+  // Quotas
+  if (u.quotas) {
+    html += '<div class="modal-section"><h3>Quotas (Config)</h3><dl class="detail-grid">';
+    const q = u.quotas;
+    if (q.daily_bandwidth_mb != null) html += '<dt>Daily BW</dt><dd>'+q.daily_bandwidth_mb+' MB</dd>';
+    if (q.monthly_bandwidth_mb != null) html += '<dt>Monthly BW</dt><dd>'+q.monthly_bandwidth_mb+' MB</dd>';
+    if (q.total_bandwidth_mb != null) html += '<dt>Total BW</dt><dd>'+q.total_bandwidth_mb+' MB</dd>';
+    if (q.daily_connections != null) html += '<dt>Daily Conns</dt><dd>'+q.daily_connections+'</dd>';
+    if (q.monthly_connections != null) html += '<dt>Monthly Conns</dt><dd>'+q.monthly_connections+'</dd>';
+    html += '</dl></div>';
+  }
+
+  // Live stats
+  html += '<div class="modal-section"><h3>Live Stats</h3><dl class="detail-grid">';
+  html += '<dt>Active Connections</dt><dd>'+u.current_connections+'</dd>';
+  html += '<dt>Total Bytes</dt><dd>'+fmtBytes(u.total_bytes_transferred)+'</dd>';
+  if (u.quota_usage) {
+    const qu = u.quota_usage;
+    if (qu.daily_bytes != null) html += '<dt>Daily BW Used</dt><dd>'+fmtBytes(qu.daily_bytes)+'</dd>';
+    if (qu.monthly_bytes != null) html += '<dt>Monthly BW Used</dt><dd>'+fmtBytes(qu.monthly_bytes)+'</dd>';
+    if (qu.daily_connections != null) html += '<dt>Daily Conns Used</dt><dd>'+qu.daily_connections+'</dd>';
+  }
+  html += '</dl></div>';
+
+  // Time access
+  if (u.time_access) {
+    html += '<div class="modal-section"><h3>Time Access</h3><dl class="detail-grid">';
+    const ta = u.time_access;
+    if (ta.allowed_days) html += '<dt>Days</dt><dd>'+esc(ta.allowed_days.join(', '))+'</dd>';
+    if (ta.allowed_hours_start != null) html += '<dt>Hours</dt><dd>'+ta.allowed_hours_start+':00 - '+ta.allowed_hours_end+':00</dd>';
+    if (ta.timezone) html += '<dt>Timezone</dt><dd>'+esc(ta.timezone)+'</dd>';
+    html += '</dl></div>';
+  }
+
+  // Aliases
+  const aliasEntries = Object.entries(u.aliases || {});
+  if (aliasEntries.length) {
+    html += '<div class="modal-section"><h3>Aliases</h3><ul class="detail-list">';
+    aliasEntries.forEach(([k,v]) => { html += '<li><strong>'+esc(k)+'</strong> = '+esc(v)+'</li>'; });
+    html += '</ul></div>';
+  }
+
+  // Actions
+  html += '<div class="actions" style="margin-top:0.5rem">';
+  html += '<button class="btn danger" onclick="kick(\''+esc(u.username)+'\');closeUserModal()">Kick User</button>';
+  html += '</div>';
+
+  return html;
 }
 
 // --- Start connection: try WS first, then SSE, then polling ---

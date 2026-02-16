@@ -255,45 +255,45 @@ sks5 --config config.toml
 | Variable | Description |
 |----------|-------------|
 | `SKS5_CONFIG` | Config file path |
-| `SKSKS5_SSH_LISTEN` | SSH listen address |
-| `SKSKS5_SOCKS5_LISTEN` | Standalone SOCKS5 listen address |
+| `SKS5_SSH_LISTEN` | SSH listen address |
+| `SKS5_SOCKS5_LISTEN` | Standalone SOCKS5 listen address |
 | `SKS5_HOST_KEY_PATH` | SSH host key file path |
-| `SKSKS5_LOG_LEVEL` | Log level (trace/debug/info/warn/error) |
+| `SKS5_LOG_LEVEL` | Log level (trace/debug/info/warn/error) |
 | `SKS5_LOG_FORMAT` | Log format (pretty/json) |
 | `SKS5_MAX_CONNECTIONS` | Max total connections |
 | `SKS5_CONNECTION_TIMEOUT` | Connection timeout (seconds) |
 | `SKS5_IDLE_TIMEOUT` | Idle timeout (seconds) |
 | `SKS5_BAN_ENABLED` | Enable auto-banning (true/false) |
-| `SKSKS5_BAN_THRESHOLD` | Failed auth attempts before ban |
+| `SKS5_BAN_THRESHOLD` | Failed auth attempts before ban |
 | `SKS5_IP_GUARD_ENABLED` | Block private IP connections (true/false) |
 | `SKS5_METRICS_ENABLED` | Enable Prometheus metrics (true/false) |
 | `SKS5_METRICS_LISTEN` | Metrics listen address |
 | `SKS5_API_ENABLED` | Enable management API (true/false) |
 | `SKS5_API_LISTEN` | API listen address |
-| `SKSKS5_API_TOKEN` | API bearer token |
+| `SKS5_API_TOKEN` | API bearer token |
 | `SKS5_GLOBAL_ACL_DEFAULT_POLICY` | Global ACL policy (allow/deny) |
 | `SKS5_GLOBAL_ACL_DENY` | Comma-separated global deny rules |
 | `SKS5_GLOBAL_ACL_ALLOW` | Comma-separated global allow rules |
-| `SKSKS5_USERNAME` | Single-user username (default: "user") |
-| `SKSKS5_PASSWORD_HASH` | Single-user password hash |
+| `SKS5_USERNAME` | Single-user username (default: "user") |
+| `SKS5_PASSWORD_HASH` | Single-user password hash |
 | `SKS5_AUTHORIZED_KEYS` | Comma-separated SSH public keys |
 
 Per-user indexed variables follow the pattern `SKS5_USER_<N>_<FIELD>`:
 
 | Variable Pattern | Description |
 |-----------------|-------------|
-| `SKSKS5_USER_<N>_USERNAME` | Username |
-| `SKSKS5_USER_<N>_PASSWORD_HASH` | Password hash |
-| `SKSKS5_USER_<N>_AUTHORIZED_KEYS` | Comma-separated SSH public keys |
-| `SKSKS5_USER_<N>_ALLOW_FORWARDING` | Allow SOCKS5/port forwarding |
-| `SKSKS5_USER_<N>_ALLOW_SHELL` | Allow interactive shell |
-| `SKSKS5_USER_<N>_MAX_BANDWIDTH_KBPS` | Per-connection bandwidth limit |
-| `SKSKS5_USER_<N>_SOURCE_IPS` | Comma-separated allowed source CIDRs |
-| `SKSKS5_USER_<N>_ACL_DEFAULT_POLICY` | Per-user ACL policy |
-| `SKSKS5_USER_<N>_ACL_ALLOW` | Comma-separated user allow rules |
-| `SKSKS5_USER_<N>_ACL_DENY` | Comma-separated user deny rules |
-| `SKSKS5_USER_<N>_TOTP_ENABLED` | Enable TOTP 2FA |
-| `SKSKS5_USER_<N>_TOTP_SECRET` | TOTP secret (base32) |
+| `SKS5_USER_<N>_USERNAME` | Username |
+| `SKS5_USER_<N>_PASSWORD_HASH` | Password hash |
+| `SKS5_USER_<N>_AUTHORIZED_KEYS` | Comma-separated SSH public keys |
+| `SKS5_USER_<N>_ALLOW_FORWARDING` | Allow SOCKS5/port forwarding |
+| `SKS5_USER_<N>_ALLOW_SHELL` | Allow interactive shell |
+| `SKS5_USER_<N>_MAX_BANDWIDTH_KBPS` | Per-connection bandwidth limit |
+| `SKS5_USER_<N>_SOURCE_IPS` | Comma-separated allowed source CIDRs |
+| `SKS5_USER_<N>_ACL_DEFAULT_POLICY` | Per-user ACL policy |
+| `SKS5_USER_<N>_ACL_ALLOW` | Comma-separated user allow rules |
+| `SKS5_USER_<N>_ACL_DENY` | Comma-separated user deny rules |
+| `SKS5_USER_<N>_TOTP_ENABLED` | Enable TOTP 2FA |
+| `SKS5_USER_<N>_TOTP_SECRET` | TOTP secret (base32) |
 
 ### Docker Secrets via _FILE Convention
 
@@ -582,6 +582,33 @@ IP Guard is enabled by default. Disable it only if you need to forward to intern
 ip_guard_enabled = false
 ```
 
+### ACL: Hostname vs IP Blocking
+
+**Important security consideration:** ACL rules using hostname patterns (e.g., `www.google.fr:*`, `*.example.com:443`) only match the hostname as provided in the SOCKS5/SSH forwarding request. They do **not** perform reverse DNS lookups or IP-to-hostname resolution.
+
+This means if a user sends a connection request with the raw IP address (e.g., `142.250.x.x:443`) instead of the hostname, a hostname-based deny rule like `www.google.fr:*` will **not** block the connection. The ACL has two evaluation phases:
+
+1. **Pre-check (hostname):** Rules of type `HostPattern` match the hostname string from the request
+2. **Post-check (IP):** Rules of type `Cidr` match the resolved IP address after DNS resolution
+
+A `HostPattern` rule never matches a raw IP request, and a `Cidr` rule never matches a hostname request at the pre-check phase (it matches at post-check).
+
+**Mitigations:**
+
+- **Use `default_policy = "deny"` with an allowlist** (recommended): Only permit explicitly allowed destinations. This is the most secure approach.
+- **Combine hostname and CIDR rules:** Add both `www.google.fr:*` and the corresponding IP ranges (e.g., `142.250.0.0/16:*`) to your deny list.
+- **Enable IP Guard:** The built-in IP Guard blocks connections to private/internal IP ranges regardless of how the request is made.
+
+```toml
+# Secure: deny-by-default with allowlist
+[users.acl]
+default_policy = "deny"
+allow = [
+    "api.github.com:443",
+    "*.example.com:443",
+]
+```
+
 ---
 
 ## Shell
@@ -697,9 +724,18 @@ ping_command = true        # ping host
 resolve_command = true     # resolve hostname
 bookmark_command = true    # bookmark add/list/del
 alias_command = true       # alias add/list/del
+show_quota = true             # show quota
+show_role = true              # MOTD {role} + show status role line
+show_group = true             # MOTD {group} + show status group line
+show_expires = true           # MOTD {expires_at} + show status expires line
+show_source_ip = true         # MOTD {source_ip} + show status source line
+show_auth_method = true       # MOTD {auth_method} + show status auth line
+show_uptime = true            # MOTD {uptime} + show status uptime line
 ```
 
 All permissions default to `true`. Set to `false` to restrict access.
+
+These permissions control both the shell commands and the MOTD template. When a permission is set to `false`, the corresponding MOTD placeholder is replaced with an empty string (the line is hidden in the default template), and the matching shell command or `show status` line is also hidden.
 
 ### MOTD (Message of the Day)
 
@@ -735,8 +771,11 @@ Server uptime: {uptime} | Version: {version}
 | `{group}` | Group name or "none" |
 | `{role}` | "user" or "admin" |
 | `{denied}` | Comma-separated ACL deny rules or "none" |
+| `{allowed}` | Comma-separated ACL allow rules or "none" |
 
 MOTD can be overridden per group or per user. Inheritance order: user > group > global.
+
+MOTD visibility is controlled by `[users.shell_permissions]` flags. When a flag like `show_acl = false` is set, the corresponding MOTD placeholders (`{acl_policy}`, `{allowed}`, `{denied}`) are replaced with empty strings, and the lines are automatically hidden in the default template.
 
 ---
 
@@ -788,6 +827,7 @@ All API endpoints require authentication via `Authorization: Bearer <token>` hea
 | GET | `/api/health` | Health status with details (maintenance, connections, uptime) |
 | GET | `/api/status` | Server status (uptime, active connections, total users) |
 | GET | `/api/users` | List all configured users |
+| GET | `/api/users/{username}` | Get detailed information for a specific user |
 | GET | `/api/connections` | List active proxy connections |
 | GET | `/api/bans` | List currently banned IPs |
 | DELETE | `/api/bans/{ip}` | Remove a specific IP ban |
@@ -1062,6 +1102,17 @@ Enable connection flow logs for detailed per-connection timing:
 [logging]
 connection_flow_logs = true
 ```
+
+**Suppress denied connection logs:**
+
+If your server receives a high volume of rejected connections (bots, scanners), you can suppress the associated log messages while still recording metrics:
+
+```toml
+[logging]
+log_denied_connections = false
+```
+
+When set to `false`, policy denial messages (ACL deny, rate limit exceeded, quota exceeded, banned IP, auth failed, etc.) are not logged. Metrics and audit events are still recorded normally. Default: `true`.
 
 ### Health Check
 

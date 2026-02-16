@@ -148,6 +148,7 @@ Logging and audit configuration.
 | `audit_max_size_mb` | u64 | `100` | Maximum size per audit log file in MB before rotation. |
 | `audit_max_files` | u32 | `5` | Number of rotated audit log files to retain. |
 | `connection_flow_logs` | bool | `false` | Enable detailed connection flow logs (per-step timing for each connection). Produces verbose output at debug log level. |
+| `log_denied_connections` | bool | `true` | Suppress policy denial log messages (ACL deny, rate limit exceeded, quota exceeded, banned IP, auth timeout, etc.). Metrics and audit events are still recorded. |
 
 ---
 
@@ -217,6 +218,7 @@ Global Message of the Day shown after SSH login. Supports template variables. Ca
 | `{group}` | Group name or "none" |
 | `{role}` | "user" or "admin" |
 | `{denied}` | Comma-separated ACL deny rules or "none" |
+| `{allowed}` | Comma-separated ACL allow rules or "none" |
 
 ---
 
@@ -329,6 +331,13 @@ Per-user shell command permissions. Overrides group/global defaults. All permiss
 | `resolve_command` | bool | `true` | Allow `resolve hostname` command. |
 | `bookmark_command` | bool | `true` | Allow `bookmark add/list/del` commands. |
 | `alias_command` | bool | `true` | Allow `alias add/list/del` commands. |
+| `show_quota` | bool | `true` | Controls `show quota` command and quota-related MOTD lines. |
+| `show_role` | bool | `true` | Controls `{role}` in MOTD and role line in `show status`. |
+| `show_group` | bool | `true` | Controls `{group}` in MOTD and group line in `show status`. |
+| `show_expires` | bool | `true` | Controls `{expires_at}` in MOTD and expires line in `show status`. |
+| `show_source_ip` | bool | `true` | Controls `{source_ip}` in MOTD and source IP line in `show status`. |
+| `show_auth_method` | bool | `true` | Controls `{auth_method}` in MOTD and auth method line in `show status`. |
+| `show_uptime` | bool | `true` | Controls `{uptime}` in MOTD and uptime line in `show status`. |
 
 ---
 
@@ -435,6 +444,13 @@ Group-level shell permissions. Same structure as `[users.shell_permissions]`. Al
 | `resolve_command` | bool | `true` | Allow `resolve hostname`. |
 | `bookmark_command` | bool | `true` | Allow `bookmark add/list/del`. |
 | `alias_command` | bool | `true` | Allow `alias add/list/del`. |
+| `show_quota` | bool | `true` | Controls `show quota` and quota MOTD lines. |
+| `show_role` | bool | `true` | Controls `{role}` in MOTD and `show status`. |
+| `show_group` | bool | `true` | Controls `{group}` in MOTD and `show status`. |
+| `show_expires` | bool | `true` | Controls `{expires_at}` in MOTD and `show status`. |
+| `show_source_ip` | bool | `true` | Controls `{source_ip}` in MOTD and `show status`. |
+| `show_auth_method` | bool | `true` | Controls `{auth_method}` in MOTD and `show status`. |
+| `show_uptime` | bool | `true` | Controls `{uptime}` in MOTD and `show status`. |
 
 ---
 
@@ -656,6 +672,7 @@ When running without a config file, the following environment variables are reco
 | `SKS5_AUDIT_MAX_SIZE_MB` | u64 | `100` | `logging.audit_max_size_mb` |
 | `SKS5_AUDIT_MAX_FILES` | u32 | `5` | `logging.audit_max_files` |
 | `SKS5_CONNECTION_FLOW_LOGS` | bool | `false` | `logging.connection_flow_logs` |
+| `SKS5_LOG_DENIED_CONNECTIONS` | bool | `true` | `logging.log_denied_connections` |
 
 ### Metrics and API
 
