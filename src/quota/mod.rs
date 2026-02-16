@@ -194,9 +194,12 @@ impl QuotaTracker {
         Ok(())
     }
 
-    /// Record a new connection: increment rate counters and cumulative counters.
-    /// Checks daily/monthly connection quotas BEFORE incrementing.
-    pub fn record_connection(
+    /// Check connection quotas and record the attempt in rate windows.
+    ///
+    /// This does NOT increment cumulative daily/monthly connection counters.
+    /// Call `record_connection_success()` after the connection actually succeeds
+    /// to avoid inflating counters on failed connections (ACL deny, DNS fail, etc.).
+    pub fn check_and_record_connection_attempt(
         &self,
         username: &str,
         quotas: Option<&QuotaConfig>,
@@ -218,7 +221,7 @@ impl QuotaTracker {
             }
         }
 
-        // Record in rate windows
+        // Record in rate windows (tracks attempts for rate limiting)
         state.conn_per_second.record(1);
         state.conn_per_minute.record(1);
         state.conn_per_hour.record(1);
@@ -231,11 +234,31 @@ impl QuotaTracker {
             limiter.record(1);
         }
 
-        // Increment cumulative counters
+        state.last_activity.store(unix_secs(), Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// Record a successful connection: increment cumulative daily/monthly counters.
+    ///
+    /// Call this AFTER the connection (TCP connect, relay start) actually succeeds.
+    pub fn record_connection_success(&self, username: &str) {
+        let state = self.get_user(username);
         state.daily_connections.fetch_add(1, Ordering::Relaxed);
         state.monthly_connections.fetch_add(1, Ordering::Relaxed);
-
         state.last_activity.store(unix_secs(), Ordering::Relaxed);
+    }
+
+    /// Legacy: Record a new connection (checks + rate windows + cumulative counters in one call).
+    ///
+    /// Prefer `check_and_record_connection_attempt()` + `record_connection_success()` for
+    /// accurate counting. This method is kept for backward compatibility in tests.
+    pub fn record_connection(
+        &self,
+        username: &str,
+        quotas: Option<&QuotaConfig>,
+    ) -> Result<(), String> {
+        self.check_and_record_connection_attempt(username, quotas)?;
+        self.record_connection_success(username);
         Ok(())
     }
 
@@ -666,5 +689,80 @@ mod tests {
         assert_eq!(tracker.get_user_usage("alice").total_bytes, 1024);
         tracker.reset_user("alice");
         assert_eq!(tracker.get_user_usage("alice").total_bytes, 0);
+    }
+
+    #[test]
+    fn test_check_and_record_attempt_does_not_increment_counters() {
+        let tracker = QuotaTracker::new(&test_limits());
+        let quota = QuotaConfig {
+            daily_connection_limit: 10,
+            monthly_connection_limit: 100,
+            ..Default::default()
+        };
+
+        // Call check_and_record_connection_attempt
+        let result = tracker.check_and_record_connection_attempt("alice", Some(&quota));
+        assert!(result.is_ok());
+
+        // Verify that daily/monthly connection counters are NOT incremented
+        let usage = tracker.get_user_usage("alice");
+        assert_eq!(usage.daily_connections, 0);
+        assert_eq!(usage.monthly_connections, 0);
+    }
+
+    #[test]
+    fn test_record_connection_success_increments_counters() {
+        let tracker = QuotaTracker::new(&test_limits());
+
+        // Call record_connection_success
+        tracker.record_connection_success("alice");
+
+        // Verify that daily/monthly connection counters are incremented
+        let usage = tracker.get_user_usage("alice");
+        assert_eq!(usage.daily_connections, 1);
+        assert_eq!(usage.monthly_connections, 1);
+
+        // Call again to verify increments continue
+        tracker.record_connection_success("alice");
+        let usage = tracker.get_user_usage("alice");
+        assert_eq!(usage.daily_connections, 2);
+        assert_eq!(usage.monthly_connections, 2);
+    }
+
+    #[test]
+    fn test_split_flow_attempt_then_success() {
+        let tracker = QuotaTracker::new(&test_limits());
+        let quota = QuotaConfig {
+            daily_connection_limit: 5,
+            monthly_connection_limit: 50,
+            ..Default::default()
+        };
+
+        // Step 1: Check and record attempt
+        let result = tracker.check_and_record_connection_attempt("bob", Some(&quota));
+        assert!(result.is_ok());
+
+        // Verify counters are still zero after attempt
+        let usage = tracker.get_user_usage("bob");
+        assert_eq!(usage.daily_connections, 0);
+        assert_eq!(usage.monthly_connections, 0);
+
+        // Step 2: Record success
+        tracker.record_connection_success("bob");
+
+        // Verify counters are now incremented
+        let usage = tracker.get_user_usage("bob");
+        assert_eq!(usage.daily_connections, 1);
+        assert_eq!(usage.monthly_connections, 1);
+
+        // Repeat the flow to verify multiple iterations work correctly
+        assert!(tracker
+            .check_and_record_connection_attempt("bob", Some(&quota))
+            .is_ok());
+        tracker.record_connection_success("bob");
+
+        let usage = tracker.get_user_usage("bob");
+        assert_eq!(usage.daily_connections, 2);
+        assert_eq!(usage.monthly_connections, 2);
     }
 }

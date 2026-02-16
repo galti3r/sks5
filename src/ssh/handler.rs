@@ -85,13 +85,15 @@ impl SshHandler {
 
         // Time-based access check
         if !user.check_time_access() {
-            warn!(
-                conn_id = %self.conn_id,
-                user = %username,
-                host = %host_to_connect,
-                port = port_to_connect,
-                "Forwarding denied: outside allowed access hours/days"
-            );
+            if self.ctx.config.logging.log_denied_connections {
+                warn!(
+                    conn_id = %self.conn_id,
+                    user = %username,
+                    host = %host_to_connect,
+                    port = port_to_connect,
+                    "Forwarding denied: outside allowed access hours/days"
+                );
+            }
             self.ctx
                 .metrics
                 .record_connection_rejected("time_access_denied");
@@ -105,12 +107,14 @@ impl SshHandler {
             .await
             .check_rate_limit(&username, user.max_new_connections_per_minute)
         {
-            warn!(
-                conn_id = %self.conn_id,
-                user = %username,
-                limit = user.max_new_connections_per_minute,
-                "SSH direct-tcpip rate limit exceeded (legacy)"
-            );
+            if self.ctx.config.logging.log_denied_connections {
+                warn!(
+                    conn_id = %self.conn_id,
+                    user = %username,
+                    limit = user.max_new_connections_per_minute,
+                    "SSH direct-tcpip rate limit exceeded (legacy)"
+                );
+            }
             self.ctx.audit.log_rate_limit_exceeded_cid(
                 &username,
                 &self.peer_addr,
@@ -127,12 +131,14 @@ impl SshHandler {
             &user.rate_limits,
             &self.ctx.config.limits,
         ) {
-            warn!(
-                conn_id = %self.conn_id,
-                user = %username,
-                reason = %reason,
-                "SSH direct-tcpip quota rate limit exceeded"
-            );
+            if self.ctx.config.logging.log_denied_connections {
+                warn!(
+                    conn_id = %self.conn_id,
+                    user = %username,
+                    reason = %reason,
+                    "SSH direct-tcpip quota rate limit exceeded"
+                );
+            }
             self.ctx.audit.log_rate_limit_exceeded_cid(
                 &username,
                 &self.peer_addr,
@@ -143,18 +149,21 @@ impl SshHandler {
             return Ok(None);
         }
 
-        // Record connection in quota tracker (checks daily/monthly quotas)
+        // Check connection quotas and record attempt in rate windows
+        // (cumulative counters are incremented only after successful connect)
         if let Err(reason) = self
             .ctx
             .quota_tracker
-            .record_connection(&username, user.quotas.as_ref())
+            .check_and_record_connection_attempt(&username, user.quotas.as_ref())
         {
-            warn!(
-                conn_id = %self.conn_id,
-                user = %username,
-                reason = %reason,
-                "SSH direct-tcpip connection quota exceeded"
-            );
+            if self.ctx.config.logging.log_denied_connections {
+                warn!(
+                    conn_id = %self.conn_id,
+                    user = %username,
+                    reason = %reason,
+                    "SSH direct-tcpip connection quota exceeded"
+                );
+            }
             self.ctx.audit.log_quota_exceeded(&username, &reason, 0, 0);
             self.ctx
                 .metrics
@@ -171,12 +180,14 @@ impl SshHandler {
             .quota_tracker
             .check_bandwidth_quota(&username, user.quotas.as_ref())
         {
-            warn!(
-                conn_id = %self.conn_id,
-                user = %username,
-                reason = %reason,
-                "SSH direct-tcpip bandwidth quota already exhausted"
-            );
+            if self.ctx.config.logging.log_denied_connections {
+                warn!(
+                    conn_id = %self.conn_id,
+                    user = %username,
+                    reason = %reason,
+                    "SSH direct-tcpip bandwidth quota already exhausted"
+                );
+            }
             self.ctx.audit.log_quota_exceeded(&username, &reason, 0, 0);
             self.ctx
                 .metrics
@@ -188,32 +199,38 @@ impl SshHandler {
         }
 
         if !user.is_source_ip_allowed(&self.peer_addr.ip()) {
-            warn!(
-                conn_id = %self.conn_id,
-                user = %username,
-                ip = %self.peer_addr.ip(),
-                "SSH direct-tcpip from IP not in user's allowed source_ips"
-            );
+            if self.ctx.config.logging.log_denied_connections {
+                warn!(
+                    conn_id = %self.conn_id,
+                    user = %username,
+                    ip = %self.peer_addr.ip(),
+                    "SSH direct-tcpip from IP not in user's allowed source_ips"
+                );
+            }
             return Ok(None);
         }
 
         let port = match u16::try_from(port_to_connect) {
             Ok(p) => p,
             Err(_) => {
-                warn!(conn_id = %self.conn_id, user = %username, port = port_to_connect, "Invalid port number");
+                if self.ctx.config.logging.log_denied_connections {
+                    warn!(conn_id = %self.conn_id, user = %username, port = port_to_connect, "Invalid port number");
+                }
                 return Ok(None);
             }
         };
 
         // ACL pre-check: reject the channel immediately if ACL would deny it
         if user.acl.check(host_to_connect, port, None) == crate::config::acl::AclPolicy::Deny {
-            warn!(
-                conn_id = %self.conn_id,
-                user = %username,
-                host = %host_to_connect,
-                port = port,
-                "Forwarding denied by ACL"
-            );
+            if self.ctx.config.logging.log_denied_connections {
+                warn!(
+                    conn_id = %self.conn_id,
+                    user = %username,
+                    host = %host_to_connect,
+                    port = port,
+                    "Forwarding denied by ACL"
+                );
+            }
             self.ctx
                 .metrics
                 .record_error(crate::metrics::error_types::ACL_DENIED);
@@ -230,14 +247,16 @@ impl SshHandler {
         method: &str,
         attempts: u32,
     ) -> russh::server::Auth {
-        warn!(
-            conn_id = %self.conn_id,
-            user = %username,
-            ip = %self.peer_addr,
-            attempt = attempts,
-            method = %method,
-            "Auth failed"
-        );
+        if self.ctx.config.logging.log_denied_connections {
+            warn!(
+                conn_id = %self.conn_id,
+                user = %username,
+                ip = %self.peer_addr,
+                attempt = attempts,
+                method = %method,
+                "Auth failed"
+            );
+        }
         self.ctx
             .audit
             .log_auth_failure_cid(username, &self.peer_addr, method, &self.conn_id)
@@ -407,18 +426,22 @@ impl russh::server::Handler for SshHandler {
         };
 
         if !user.allow_shell {
-            warn!(conn_id = %self.conn_id, user = %username, "Shell access denied by config");
+            if self.ctx.config.logging.log_denied_connections {
+                warn!(conn_id = %self.conn_id, user = %username, "Shell access denied by config");
+            }
             return Ok(false);
         }
 
         // Enforce per-connection channel limit to prevent resource exhaustion
         if self.shells.len() >= MAX_CHANNELS_PER_CONNECTION {
-            warn!(
-                user = %username,
-                conn_id = %self.conn_id,
-                max = MAX_CHANNELS_PER_CONNECTION,
-                "Max shell channels per connection exceeded"
-            );
+            if self.ctx.config.logging.log_denied_connections {
+                warn!(
+                    user = %username,
+                    conn_id = %self.conn_id,
+                    max = MAX_CHANNELS_PER_CONNECTION,
+                    "Max shell channels per connection exceeded"
+                );
+            }
             return Ok(false);
         }
 
@@ -479,8 +502,14 @@ impl russh::server::Handler for SshHandler {
                 group: user.group.clone(),
                 role: user.role.to_string(),
                 denied: user.acl.deny_rules.iter().map(|r| r.to_string()).collect(),
+                allowed: user.acl.allow_rules.iter().map(|r| r.to_string()).collect(),
             };
-            let rendered = motd::render_motd(&template_str, &motd_ctx, motd_colors);
+            let rendered = motd::render_motd(
+                &template_str,
+                &motd_ctx,
+                motd_colors,
+                &user.shell_permissions,
+            );
             shell.set_motd(rendered);
         }
 
@@ -496,7 +525,9 @@ impl russh::server::Handler for SshHandler {
         self.total_auth_attempts += 1;
 
         if self.is_auth_timed_out() {
-            warn!(conn_id = %self.conn_id, ip = %self.peer_addr.ip(), "SSH auth timeout exceeded");
+            if self.ctx.config.logging.log_denied_connections {
+                warn!(conn_id = %self.conn_id, ip = %self.peer_addr.ip(), "SSH auth timeout exceeded");
+            }
             self.ctx.metrics.record_connection_rejected("auth_timeout");
             return Ok(russh::server::Auth::Reject {
                 proceed_with_methods: None,
@@ -511,7 +542,9 @@ impl russh::server::Handler for SshHandler {
             .await
             .pre_auth_check(&self.peer_addr.ip())
         {
-            warn!(conn_id = %self.conn_id, ip = %self.peer_addr.ip(), reason = %reason, "SSH password auth rejected");
+            if self.ctx.config.logging.log_denied_connections {
+                warn!(conn_id = %self.conn_id, ip = %self.peer_addr.ip(), reason = %reason, "SSH password auth rejected");
+            }
             let metric_reason = if reason == "banned IP" {
                 "banned"
             } else {
@@ -600,7 +633,9 @@ impl russh::server::Handler for SshHandler {
         self.total_auth_attempts += 1;
 
         if self.is_auth_timed_out() {
-            warn!(conn_id = %self.conn_id, ip = %self.peer_addr.ip(), "SSH auth timeout exceeded");
+            if self.ctx.config.logging.log_denied_connections {
+                warn!(conn_id = %self.conn_id, ip = %self.peer_addr.ip(), "SSH auth timeout exceeded");
+            }
             self.ctx.metrics.record_connection_rejected("auth_timeout");
             return Ok(russh::server::Auth::Reject {
                 proceed_with_methods: None,
@@ -615,7 +650,9 @@ impl russh::server::Handler for SshHandler {
             .await
             .pre_auth_check(&self.peer_addr.ip())
         {
-            warn!(conn_id = %self.conn_id, ip = %self.peer_addr.ip(), reason = %reason, "SSH pubkey auth rejected");
+            if self.ctx.config.logging.log_denied_connections {
+                warn!(conn_id = %self.conn_id, ip = %self.peer_addr.ip(), reason = %reason, "SSH pubkey auth rejected");
+            }
             let metric_reason = if reason == "banned IP" {
                 "banned"
             } else {
@@ -677,7 +714,9 @@ impl russh::server::Handler for SshHandler {
         self.total_auth_attempts += 1;
 
         if self.is_auth_timed_out() {
-            warn!(conn_id = %self.conn_id, ip = %self.peer_addr.ip(), "SSH auth timeout exceeded");
+            if self.ctx.config.logging.log_denied_connections {
+                warn!(conn_id = %self.conn_id, ip = %self.peer_addr.ip(), "SSH auth timeout exceeded");
+            }
             self.ctx.metrics.record_connection_rejected("auth_timeout");
             return Ok(russh::server::Auth::Reject {
                 proceed_with_methods: None,
@@ -693,7 +732,9 @@ impl russh::server::Handler for SshHandler {
             .await
             .pre_auth_check(&self.peer_addr.ip())
         {
-            warn!(conn_id = %self.conn_id, ip = %self.peer_addr.ip(), reason = %reason, "SSH auth_none rejected (pre-auth)");
+            if self.ctx.config.logging.log_denied_connections {
+                warn!(conn_id = %self.conn_id, ip = %self.peer_addr.ip(), reason = %reason, "SSH auth_none rejected (pre-auth)");
+            }
             let metric_reason = if reason == "banned IP" {
                 "banned"
             } else {
@@ -769,12 +810,14 @@ impl russh::server::Handler for SshHandler {
                     bandwidth_limit_kbps: user.max_bandwidth_kbps,
                     max_per_user: user.max_connections,
                     aggregate_bandwidth_kbps: aggregate_bw,
-                    quota_tracker: Some(quota_tracker),
+                    quota_tracker: Some(quota_tracker.clone()),
                     quotas: user_quotas,
                     upstream_proxy,
                 };
                 match proxy.connect_and_relay(relay_req).await {
                     Ok((bytes_up, bytes_down, resolved_addr)) => {
+                        // Record successful connection in cumulative counters
+                        quota_tracker.record_connection_success(&username);
                         let duration_ms = start.elapsed().as_millis() as u64;
                         info!(
                             conn_id = %conn_id,
@@ -958,13 +1001,15 @@ impl russh::server::Handler for SshHandler {
         name: &str,
         session: &mut russh::server::Session,
     ) -> Result<(), Self::Error> {
-        warn!(
-            conn_id = %self.conn_id,
-            subsystem = %name,
-            user = ?self.session_state.username,
-            ip = %self.peer_addr,
-            "Subsystem denied (SFTP/SCP not allowed)"
-        );
+        if self.ctx.config.logging.log_denied_connections {
+            warn!(
+                conn_id = %self.conn_id,
+                subsystem = %name,
+                user = ?self.session_state.username,
+                ip = %self.peer_addr,
+                "Subsystem denied (SFTP/SCP not allowed)"
+            );
+        }
         let _ = session.channel_failure(channel);
         Ok(())
     }
@@ -976,14 +1021,16 @@ impl russh::server::Handler for SshHandler {
         port: &mut u32,
         _session: &mut russh::server::Session,
     ) -> Result<bool, Self::Error> {
-        warn!(
-            conn_id = %self.conn_id,
-            address = %address,
-            port = %port,
-            user = ?self.session_state.username,
-            ip = %self.peer_addr,
-            "Reverse forwarding denied (tcpip_forward)"
-        );
+        if self.ctx.config.logging.log_denied_connections {
+            warn!(
+                conn_id = %self.conn_id,
+                address = %address,
+                port = %port,
+                user = ?self.session_state.username,
+                ip = %self.peer_addr,
+                "Reverse forwarding denied (tcpip_forward)"
+            );
+        }
         Ok(false)
     }
 
@@ -994,12 +1041,14 @@ impl russh::server::Handler for SshHandler {
         port: u32,
         _session: &mut russh::server::Session,
     ) -> Result<bool, Self::Error> {
-        warn!(
-            conn_id = %self.conn_id,
-            address = %address,
-            port = %port,
-            "cancel_tcpip_forward denied"
-        );
+        if self.ctx.config.logging.log_denied_connections {
+            warn!(
+                conn_id = %self.conn_id,
+                address = %address,
+                port = %port,
+                "cancel_tcpip_forward denied"
+            );
+        }
         Ok(false)
     }
 
@@ -1013,13 +1062,15 @@ impl russh::server::Handler for SshHandler {
         originator_port: u32,
         _session: &mut russh::server::Session,
     ) -> Result<bool, Self::Error> {
-        warn!(
-            conn_id = %self.conn_id,
-            host = %host_to_connect,
-            port = %port_to_connect,
-            originator = %format!("{}:{}", originator_address, originator_port),
-            "Forwarded-tcpip channel denied"
-        );
+        if self.ctx.config.logging.log_denied_connections {
+            warn!(
+                conn_id = %self.conn_id,
+                host = %host_to_connect,
+                port = %port_to_connect,
+                originator = %format!("{}:{}", originator_address, originator_port),
+                "Forwarded-tcpip channel denied"
+            );
+        }
         drop(channel);
         Ok(false)
     }

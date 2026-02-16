@@ -1,4 +1,4 @@
-use crate::config::types::MotdConfig;
+use crate::config::types::{MotdConfig, ShellPermissions};
 use crate::utils::{format_bytes, format_bytes_used};
 
 /// All template variables available for MOTD rendering.
@@ -31,6 +31,8 @@ pub struct MotdContext {
     pub role: String,
     /// List of ACL deny rules as display strings.
     pub denied: Vec<String>,
+    /// List of ACL allow rules as display strings.
+    pub allowed: Vec<String>,
 }
 
 /// Format seconds as "Xd Xh Xm".
@@ -100,6 +102,34 @@ fn is_within_7_days(iso: &str) -> bool {
     (0..=7).contains(&diff)
 }
 
+/// Check whether a box-drawing content line has any actual values (not just labels).
+///
+/// A content line like `║  Role: user` has value "user" after the colon → true.
+/// A line like `║  Role: ` has no value → false.
+/// A line like `║  Bandwidth:  / ` has no real value (only "/") → false.
+/// A line without a colon (e.g. `║  Welcome, alice!`) has raw content → true.
+fn content_line_has_values(line: &str) -> bool {
+    let content = line.trim_start_matches(['║', ' ']);
+    if content.is_empty() {
+        return false;
+    }
+    for seg in content.split('│') {
+        let seg = seg.trim();
+        if seg.is_empty() {
+            continue;
+        }
+        if let Some(colon_pos) = seg.find(':') {
+            let value = seg[colon_pos + 1..].trim();
+            if !value.is_empty() && value != "/" {
+                return true;
+            }
+        } else {
+            return true;
+        }
+    }
+    false
+}
+
 /// Render a MOTD template string by replacing placeholders with context values.
 ///
 /// When `colors` is true, certain values are wrapped in ANSI escape codes:
@@ -107,16 +137,28 @@ fn is_within_7_days(iso: &str) -> bool {
 /// - `acl_policy` "allow" in green, "deny" in red
 /// - `expires_at` in yellow when within 7 days
 /// - `role` "admin" in bold magenta
+/// - `denied` items in red, `allowed` items in green
+///
+/// When a `ShellPermissions` flag is false, the corresponding placeholder is
+/// replaced with an empty string. In the default template, the entire line
+/// is omitted.
 ///
 /// Line endings in the output use `\r\n` for SSH terminal compatibility.
-pub fn render_motd(template: &str, ctx: &MotdContext, colors: bool) -> String {
+pub fn render_motd(
+    template: &str,
+    ctx: &MotdContext,
+    colors: bool,
+    permissions: &ShellPermissions,
+) -> String {
     let user_val = if colors {
         format!("\x1b[1;36m{}\x1b[0m", ctx.user)
     } else {
         ctx.user.clone()
     };
 
-    let acl_val = if colors {
+    let acl_val = if !permissions.show_acl {
+        String::new()
+    } else if colors {
         match ctx.acl_policy.as_str() {
             "allow" => "\x1b[32mallow\x1b[0m".to_string(),
             "deny" => "\x1b[31mdeny\x1b[0m".to_string(),
@@ -126,49 +168,116 @@ pub fn render_motd(template: &str, ctx: &MotdContext, colors: bool) -> String {
         ctx.acl_policy.clone()
     };
 
-    let expires_val = match &ctx.expires_at {
-        Some(ts) => {
-            if colors && is_within_7_days(ts) {
-                format!("\x1b[33m{}\x1b[0m", ts)
-            } else {
-                ts.clone()
+    let expires_val = if !permissions.show_expires {
+        String::new()
+    } else {
+        match &ctx.expires_at {
+            Some(ts) => {
+                if colors && is_within_7_days(ts) {
+                    format!("\x1b[33m{}\x1b[0m", ts)
+                } else {
+                    ts.clone()
+                }
             }
+            None => "never".to_string(),
         }
-        None => "never".to_string(),
     };
 
-    let role_val = if colors && ctx.role == "admin" {
+    let role_val = if !permissions.show_role {
+        String::new()
+    } else if colors && ctx.role == "admin" {
         "\x1b[1;35madmin\x1b[0m".to_string()
     } else {
         ctx.role.clone()
     };
 
-    let group_val = match &ctx.group {
-        Some(g) => g.clone(),
-        None => "none".to_string(),
+    let group_val = if !permissions.show_group {
+        String::new()
+    } else {
+        match &ctx.group {
+            Some(g) => g.clone(),
+            None => "none".to_string(),
+        }
     };
 
-    let last_login_val = match &ctx.last_login {
-        Some(ts) => ts.clone(),
-        None => "first login".to_string(),
+    let last_login_val = if !permissions.show_history {
+        String::new()
+    } else {
+        match &ctx.last_login {
+            Some(ts) => ts.clone(),
+            None => "first login".to_string(),
+        }
     };
 
-    let bandwidth_used_val = format_bytes_used(ctx.bandwidth_used);
-    let bandwidth_limit_val = format_bytes(ctx.bandwidth_limit);
-    let uptime_val = format_uptime(ctx.uptime);
+    let auth_method_val = if !permissions.show_auth_method {
+        String::new()
+    } else {
+        ctx.auth_method.clone()
+    };
 
-    let denied_val = if ctx.denied.is_empty() {
+    let source_ip_val = if !permissions.show_source_ip {
+        String::new()
+    } else {
+        ctx.source_ip.clone()
+    };
+
+    let connections_val = if !permissions.show_connections {
+        String::new()
+    } else {
+        ctx.connections.to_string()
+    };
+
+    let bandwidth_used_val = if !permissions.show_bandwidth {
+        String::new()
+    } else {
+        format_bytes_used(ctx.bandwidth_used)
+    };
+    let bandwidth_limit_val = if !permissions.show_bandwidth {
+        String::new()
+    } else {
+        format_bytes(ctx.bandwidth_limit)
+    };
+
+    let uptime_val = if !permissions.show_uptime {
+        String::new()
+    } else {
+        format_uptime(ctx.uptime)
+    };
+
+    let denied_val = if !permissions.show_acl {
+        String::new()
+    } else if ctx.denied.is_empty() {
         "none".to_string()
+    } else if colors {
+        ctx.denied
+            .iter()
+            .map(|d| format!("\x1b[31m{}\x1b[0m", d))
+            .collect::<Vec<_>>()
+            .join(", ")
     } else {
         ctx.denied.join(", ")
     };
 
-    // Single-pass template rendering to avoid 14 intermediate String allocations.
+    let allowed_val = if !permissions.show_acl {
+        String::new()
+    } else if ctx.allowed.is_empty() {
+        "none".to_string()
+    } else if colors {
+        ctx.allowed
+            .iter()
+            .map(|a| format!("\x1b[32m{}\x1b[0m", a))
+            .collect::<Vec<_>>()
+            .join(", ")
+    } else {
+        ctx.allowed.join(", ")
+    };
+
+    // Single-pass template rendering to avoid intermediate String allocations.
     let replacements: &[(&str, &str)] = &[
         ("{user}", &user_val),
-        ("{auth_method}", &ctx.auth_method),
-        ("{source_ip}", &ctx.source_ip),
-        ("{connections}", &ctx.connections.to_string()),
+        ("{auth_method}", &auth_method_val),
+        ("{source_ip}", &source_ip_val),
+        ("{connections}", &connections_val),
         ("{acl_policy}", &acl_val),
         ("{expires_at}", &expires_val),
         ("{bandwidth_used}", &bandwidth_used_val),
@@ -179,51 +288,110 @@ pub fn render_motd(template: &str, ctx: &MotdContext, colors: bool) -> String {
         ("{group}", &group_val),
         ("{role}", &role_val),
         ("{denied}", &denied_val),
+        ("{allowed}", &allowed_val),
     ];
 
-    let mut result = String::with_capacity(template.len() * 2);
-    let mut i = 0;
-    let bytes = template.as_bytes();
-    while i < bytes.len() {
-        if bytes[i] == b'{' {
-            let mut found = false;
-            for &(key, value) in replacements {
-                if template[i..].starts_with(key) {
-                    result.push_str(value);
-                    i += key.len();
-                    found = true;
-                    break;
-                }
-            }
-            if !found {
-                result.push(bytes[i] as char);
-                i += 1;
-            }
-        } else {
-            result.push(bytes[i] as char);
-            i += 1;
-        }
+    let mut result = template.to_string();
+    for &(key, value) in replacements {
+        result = result.replace(key, value);
     }
 
     // Normalize line endings to \r\n for SSH terminals.
-    // First collapse any existing \r\n to \n, then replace all \n with \r\n.
     let normalized = result.replace("\r\n", "\n");
-    normalized.replace('\n', "\r\n")
+    let lines: Vec<&str> = normalized.split('\n').collect();
+
+    // Multi-pass filter for box-drawing templates:
+    // Pass 1: mark content lines (║  Label: ...) with no values for removal
+    let mut keep: Vec<bool> = vec![true; lines.len()];
+    for (i, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+        if (trimmed.starts_with("║ ") || trimmed.starts_with("║\t"))
+            && !content_line_has_values(trimmed)
+        {
+            keep[i] = false;
+        }
+    }
+
+    // Pass 2: remove section headers (╠── Label ──) with no visible content after them
+    for i in 0..lines.len() {
+        let trimmed = lines[i].trim();
+        if trimmed.starts_with("╠──") {
+            let mut has_section_content = false;
+            for j in (i + 1)..lines.len() {
+                let t = lines[j].trim();
+                if t.starts_with("╠") || t.starts_with("╚") || t.starts_with("╔") {
+                    break;
+                }
+                if keep[j] && t.starts_with("║ ") {
+                    has_section_content = true;
+                    break;
+                }
+            }
+            if !has_section_content {
+                keep[i] = false;
+            }
+        }
+    }
+
+    // Pass 3: remove spacer lines (║ alone) that are orphaned or consecutive
+    for i in 0..lines.len() {
+        if lines[i].trim() == "║" {
+            let prev_kept = (0..i).rev().find(|&j| keep[j] && lines[j].trim() != "║");
+            let next_kept = ((i + 1)..lines.len()).find(|&j| keep[j] && lines[j].trim() != "║");
+            match (prev_kept, next_kept) {
+                (None, _) | (_, None) => keep[i] = false,
+                _ => {
+                    // Collapse consecutive spacers: only keep the first
+                    if i > 0 && lines[i - 1].trim() == "║" && keep[i - 1] {
+                        keep[i] = false;
+                    }
+                }
+            }
+        }
+    }
+
+    let result_lines: Vec<&str> = lines
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| keep[*i])
+        .map(|(_, line)| *line)
+        .collect();
+    result_lines.join("\r\n")
 }
 
 /// Returns the default MOTD template string.
 ///
-/// This template uses `\r\n` line endings for SSH terminal compatibility
-/// and includes all available placeholders.
+/// Uses Unicode box-drawing characters with a left-border-only layout
+/// (open right side) so that dynamic-length content never breaks alignment.
+/// Sections are separated by `╠──` dividers.
+///
+/// Line endings use `\r\n` for SSH terminal compatibility.
 pub fn default_motd_template() -> String {
     [
-        "Welcome {user}!",
-        "Role: {role} | Group: {group} | Auth: {auth_method}",
-        "Source: {source_ip} | Connections: {connections}",
-        "ACL Policy: {acl_policy} | Denied: {denied}",
-        "Bandwidth: {bandwidth_used} / {bandwidth_limit}",
-        "Expires: {expires_at}",
-        "Server uptime: {uptime} | sks5 v{version}",
+        "╔══════════════════════════════════════════╗",
+        "║         sks5 Proxy  v{version}          ║",
+        "╠══════════════════════════════════════════╝",
+        "║",
+        "║  Welcome, {user}!",
+        "║",
+        "║  Role: {role}",
+        "║  Group: {group}",
+        "║  Auth: {auth_method}",
+        "║  Source: {source_ip}",
+        "║  Connections: {connections}",
+        "║",
+        "╠── ACL ─────────────",
+        "║  Policy: {acl_policy}",
+        "║  Allow: {allowed}",
+        "║  Deny:  {denied}",
+        "║",
+        "╠── Quotas ──────────",
+        "║  Bandwidth: {bandwidth_used} / {bandwidth_limit}",
+        "║  Expires: {expires_at}",
+        "║",
+        "╠── Server ──────────",
+        "║  Uptime: {uptime}",
+        "╚════════════════════",
     ]
     .join("\r\n")
 }
@@ -286,7 +454,12 @@ mod tests {
             group: Some("developers".to_string()),
             role: "user".to_string(),
             denied: vec!["169.254.169.254:*".to_string(), "evil.com:*".to_string()],
+            allowed: vec!["*.example.com:443".to_string()],
         }
+    }
+
+    fn default_perms() -> ShellPermissions {
+        ShellPermissions::default()
     }
 
     #[test]
@@ -353,19 +526,27 @@ mod tests {
     fn test_render_motd_no_colors() {
         let ctx = sample_context();
         let template = default_motd_template();
-        let result = render_motd(&template, &ctx, false);
+        let result = render_motd(&template, &ctx, false, &default_perms());
 
-        assert!(result.contains("Welcome alice!"));
-        assert!(result.contains("Role: user"));
-        assert!(result.contains("Group: developers"));
-        assert!(result.contains("Auth: pubkey"));
-        assert!(result.contains("Source: 192.168.1.100"));
-        assert!(result.contains("Connections: 3"));
-        assert!(result.contains("ACL Policy: allow"));
-        assert!(result.contains("1.0 GB / 10.0 GB"));
-        assert!(result.contains("Expires: 2099-12-31T23:59:59Z"));
-        assert!(result.contains("1d 1h 1m"));
-        assert!(result.contains("sks5 v0.1.0"));
+        assert!(result.contains("Welcome, alice!"));
+        assert!(result.contains("║  Role: user"));
+        assert!(result.contains("║  Group: developers"));
+        assert!(result.contains("║  Auth: pubkey"));
+        assert!(result.contains("║  Source: 192.168.1.100"));
+        assert!(result.contains("║  Connections: 3"));
+        assert!(result.contains("║  Policy: allow"));
+        assert!(result.contains("║  Allow: *.example.com:443"));
+        assert!(result.contains("║  Deny:  169.254.169.254:*, evil.com:*"));
+        assert!(result.contains("║  Bandwidth: 1.0 GB / 10.0 GB"));
+        assert!(result.contains("║  Expires: 2099-12-31T23:59:59Z"));
+        assert!(result.contains("║  Uptime: 1d 1h 1m"));
+        assert!(result.contains("sks5 Proxy  v0.1.0"));
+        // Box-drawing structure present.
+        assert!(result.contains("╔══"));
+        assert!(result.contains("╠── ACL"));
+        assert!(result.contains("╠── Quotas"));
+        assert!(result.contains("╠── Server"));
+        assert!(result.contains("╚══"));
         // No ANSI codes.
         assert!(!result.contains("\x1b["));
     }
@@ -374,7 +555,7 @@ mod tests {
     fn test_render_motd_with_colors() {
         let ctx = sample_context();
         let template = default_motd_template();
-        let result = render_motd(&template, &ctx, true);
+        let result = render_motd(&template, &ctx, true, &default_perms());
 
         // Username in bold cyan.
         assert!(result.contains("\x1b[1;36malice\x1b[0m"));
@@ -387,7 +568,7 @@ mod tests {
         let mut ctx = sample_context();
         ctx.role = "admin".to_string();
         let template = "Role: {role}";
-        let result = render_motd(template, &ctx, true);
+        let result = render_motd(template, &ctx, true, &default_perms());
 
         assert!(result.contains("\x1b[1;35madmin\x1b[0m"));
     }
@@ -397,7 +578,7 @@ mod tests {
         let mut ctx = sample_context();
         ctx.acl_policy = "deny".to_string();
         let template = "ACL: {acl_policy}";
-        let result = render_motd(template, &ctx, true);
+        let result = render_motd(template, &ctx, true, &default_perms());
 
         assert!(result.contains("\x1b[31mdeny\x1b[0m"));
     }
@@ -409,7 +590,7 @@ mod tests {
         ctx.group = None;
         ctx.last_login = None;
         let template = "Expires: {expires_at} Group: {group} Last: {last_login}";
-        let result = render_motd(template, &ctx, false);
+        let result = render_motd(template, &ctx, false, &default_perms());
 
         assert!(result.contains("Expires: never"));
         assert!(result.contains("Group: none"));
@@ -421,7 +602,7 @@ mod tests {
         let mut ctx = sample_context();
         ctx.bandwidth_limit = 0;
         let template = "BW: {bandwidth_used} / {bandwidth_limit}";
-        let result = render_motd(template, &ctx, false);
+        let result = render_motd(template, &ctx, false, &default_perms());
 
         assert!(result.contains("/ unlimited"));
     }
@@ -430,7 +611,7 @@ mod tests {
     fn test_render_motd_crlf_line_endings() {
         let ctx = sample_context();
         let template = "Line1\nLine2\nLine3";
-        let result = render_motd(template, &ctx, false);
+        let result = render_motd(template, &ctx, false, &default_perms());
 
         assert!(result.contains("Line1\r\nLine2\r\nLine3"));
         // Should not have bare \n.
@@ -441,7 +622,7 @@ mod tests {
     fn test_render_motd_existing_crlf_not_doubled() {
         let ctx = sample_context();
         let template = "Line1\r\nLine2";
-        let result = render_motd(template, &ctx, false);
+        let result = render_motd(template, &ctx, false, &default_perms());
 
         assert_eq!(result, "Line1\r\nLine2");
         // Should NOT have \r\r\n.
@@ -472,6 +653,7 @@ mod tests {
             "{uptime}",
             "{version}",
             "{denied}",
+            "{allowed}",
         ];
         for ph in &placeholders {
             assert!(template.contains(ph), "Missing placeholder: {}", ph);
@@ -482,7 +664,7 @@ mod tests {
     fn test_render_motd_denied_rules() {
         let ctx = sample_context();
         let template = "Denied: {denied}";
-        let result = render_motd(template, &ctx, false);
+        let result = render_motd(template, &ctx, false, &default_perms());
         assert_eq!(result, "Denied: 169.254.169.254:*, evil.com:*");
     }
 
@@ -491,7 +673,7 @@ mod tests {
         let mut ctx = sample_context();
         ctx.denied = vec![];
         let template = "Denied: {denied}";
-        let result = render_motd(template, &ctx, false);
+        let result = render_motd(template, &ctx, false, &default_perms());
         assert_eq!(result, "Denied: none");
     }
 
@@ -599,14 +781,137 @@ mod tests {
     fn test_render_custom_template() {
         let ctx = sample_context();
         let template = "Hello {user}, you have {connections} active sessions.";
-        let result = render_motd(template, &ctx, false);
+        let result = render_motd(template, &ctx, false, &default_perms());
         assert_eq!(result, "Hello alice, you have 3 active sessions.");
     }
 
     #[test]
     fn test_render_empty_template() {
         let ctx = sample_context();
-        let result = render_motd("", &ctx, false);
+        let result = render_motd("", &ctx, false, &default_perms());
         assert_eq!(result, "");
+    }
+
+    #[test]
+    fn test_default_template_box_drawing_structure() {
+        let template = default_motd_template();
+        // Starts with top border
+        assert!(template.starts_with("╔═"));
+        // Has section dividers
+        assert!(template.contains("╠── ACL"));
+        assert!(template.contains("╠── Quotas"));
+        assert!(template.contains("╠── Server"));
+        // Ends with bottom border
+        assert!(template.contains("╚═"));
+    }
+
+    #[test]
+    fn test_box_drawing_acl_section_hidden() {
+        let ctx = sample_context();
+        let template = default_motd_template();
+        let mut perms = default_perms();
+        perms.show_acl = false;
+        let result = render_motd(&template, &ctx, false, &perms);
+
+        // ACL section header and content should be removed
+        assert!(!result.contains("ACL"));
+        assert!(!result.contains("Policy:"));
+        assert!(!result.contains("Allow:"));
+        assert!(!result.contains("Deny:"));
+        // Other sections still present
+        assert!(result.contains("Quotas"));
+        assert!(result.contains("Bandwidth:"));
+        assert!(result.contains("Server"));
+        assert!(result.contains("Uptime:"));
+    }
+
+    #[test]
+    fn test_box_drawing_quotas_section_hidden() {
+        let ctx = sample_context();
+        let template = default_motd_template();
+        let mut perms = default_perms();
+        perms.show_bandwidth = false;
+        perms.show_expires = false;
+        let result = render_motd(&template, &ctx, false, &perms);
+
+        // Quotas section header and content should be removed
+        assert!(!result.contains("Quotas"));
+        assert!(!result.contains("Bandwidth:"));
+        assert!(!result.contains("Expires:"));
+        // Other sections still present
+        assert!(result.contains("ACL"));
+        assert!(result.contains("Server"));
+    }
+
+    #[test]
+    fn test_box_drawing_single_line_hidden() {
+        let ctx = sample_context();
+        let template = default_motd_template();
+        let mut perms = default_perms();
+        perms.show_role = false;
+        let result = render_motd(&template, &ctx, false, &perms);
+
+        // Role line removed but Group line kept
+        assert!(!result.contains("Role:"));
+        assert!(result.contains("Group: developers"));
+    }
+
+    #[test]
+    fn test_box_drawing_all_sections_visible() {
+        let ctx = sample_context();
+        let template = default_motd_template();
+        let result = render_motd(&template, &ctx, false, &default_perms());
+
+        // All sections present
+        assert!(result.contains("Welcome, alice!"));
+        assert!(result.contains("╠── ACL"));
+        assert!(result.contains("╠── Quotas"));
+        assert!(result.contains("╠── Server"));
+    }
+
+    #[test]
+    fn test_content_line_has_values_fn() {
+        assert!(content_line_has_values("║  Role: user"));
+        assert!(content_line_has_values("║  Welcome, alice!"));
+        assert!(!content_line_has_values("║  Role: "));
+        assert!(!content_line_has_values("║  Role:  "));
+        assert!(!content_line_has_values("║  Bandwidth:  / "));
+        assert!(content_line_has_values("║  Bandwidth: 1.0 GB / 10.0 GB"));
+    }
+
+    #[test]
+    fn test_box_drawing_custom_template_not_affected() {
+        let ctx = sample_context();
+        let template = "Hello {user}, role={role}";
+        let mut perms = default_perms();
+        perms.show_role = false;
+        let result = render_motd(template, &ctx, false, &perms);
+        // Custom template without box-drawing: line is kept with empty value
+        assert_eq!(result, "Hello alice, role=");
+    }
+
+    #[test]
+    fn test_render_motd_allowed_rules() {
+        let ctx = sample_context();
+        let template = "Allow: {allowed}";
+        let result = render_motd(template, &ctx, false, &default_perms());
+        assert_eq!(result, "Allow: *.example.com:443");
+    }
+
+    #[test]
+    fn test_render_motd_allowed_empty() {
+        let mut ctx = sample_context();
+        ctx.allowed = vec![];
+        let template = "Allow: {allowed}";
+        let result = render_motd(template, &ctx, false, &default_perms());
+        assert_eq!(result, "Allow: none");
+    }
+
+    #[test]
+    fn test_render_motd_allowed_colored() {
+        let ctx = sample_context();
+        let template = "Allow: {allowed}";
+        let result = render_motd(template, &ctx, true, &default_perms());
+        assert!(result.contains("\x1b[32m*.example.com:443\x1b[0m"));
     }
 }

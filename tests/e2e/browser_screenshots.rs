@@ -502,3 +502,55 @@ async fn screenshot_dashboard_light() {
 
     save_screenshot(&page, "dashboard-light.png").await;
 }
+
+// ---------------------------------------------------------------------------
+// Screenshot 3: User detail modal with enriched data
+// ---------------------------------------------------------------------------
+#[tokio::test]
+#[ignore]
+async fn screenshot_user_detail_modal() {
+    if !podman_available() {
+        eprintln!("SKIPPED: podman not available");
+        return;
+    }
+
+    let cdp_port = ensure_chrome().await;
+    let api_port = free_port().await;
+    let hash = hash_pass("pass");
+    let server = start_api_with_state(screenshot_config(api_port, TOKEN, &hash)).await;
+    wait_api_ready(api_port, TOKEN).await;
+    let _guards = populate_screenshot_data(&server).await;
+
+    let (browser, _handler) = connect_browser(cdp_port).await;
+    let page = open_dashboard(&browser, api_port, TOKEN).await;
+
+    // Wait for data to populate
+    wait_for_text(
+        &page,
+        "document.getElementById('connStatus').textContent",
+        "Connected",
+        10,
+    )
+    .await;
+    wait_for_text_ne(
+        &page,
+        "document.getElementById('totalUsers').textContent",
+        "-",
+        10,
+    )
+    .await;
+
+    // Ensure dark theme
+    page.evaluate("document.documentElement.classList.remove('light')")
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Click first username in user table to open modal
+    page.evaluate("document.querySelector('#userTable a[onclick]').click()")
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+
+    save_screenshot(&page, "user-detail-modal.png").await;
+}

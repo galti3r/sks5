@@ -324,6 +324,11 @@ ban_whitelist = ["127.0.0.1"]
 # Default: false
 # connection_flow_logs = false
 
+# Suppress policy denial log messages (ACL deny, rate limit, quota exceeded,
+# banned IP, auth timeout, etc.). Metrics/audit events are still recorded.
+# Default: true
+# log_denied_connections = true
+
 
 # =============================================================================
 # [metrics] — Optional
@@ -422,6 +427,7 @@ enabled = true
 #   {group}           — group name or "none"
 #   {role}            — "user" or "admin"
 #   {denied}          — comma-separated ACL deny rules (or "none")
+#   {allowed}         — comma-separated ACL allow rules (or "none")
 #
 # When template is absent, a built-in default MOTD is used.
 # Per-user and per-group [motd] sections override this global one.
@@ -549,6 +555,13 @@ enabled = true
 # resolve_command = true                  # `resolve hostname`. Default: true
 # bookmark_command = true                 # `bookmark add/list/del`. Default: true
 # alias_command = true                    # `alias add/list/del`. Default: true
+# show_quota = true                     # `show quota` and MOTD quota lines. Default: true
+# show_role = true                      # MOTD {role} + `show status` role line. Default: true
+# show_group = true                     # MOTD {group} + `show status` group line. Default: true
+# show_expires = true                   # MOTD {expires_at} + `show status` expires line. Default: true
+# show_source_ip = true                 # MOTD {source_ip} + `show status` source line. Default: true
+# show_auth_method = true               # MOTD {auth_method} + `show status` auth line. Default: true
+# show_uptime = true                    # MOTD {uptime} + `show status` uptime line. Default: true
 #
 # [groups.motd]
 # enabled = true                          # Default: true
@@ -799,6 +812,13 @@ deny = ["169.254.169.254:*"]  # Block AWS/cloud metadata endpoint
 # resolve_command = true        # `resolve hostname` — DNS lookup
 # bookmark_command = true       # `bookmark add/list/del` — host bookmarks
 # alias_command = true          # `alias add/list/del` — command aliases
+# show_quota = true           # `show quota` and MOTD quota lines
+# show_role = true            # MOTD {role} + `show status` role line
+# show_group = true           # MOTD {group} + `show status` group line
+# show_expires = true         # MOTD {expires_at} + `show status` expires line
+# show_source_ip = true       # MOTD {source_ip} + `show status` source line
+# show_auth_method = true     # MOTD {auth_method} + `show status` auth line
+# show_uptime = true          # MOTD {uptime} + `show status` uptime line
 
 # Per-user MOTD override. Takes precedence over group and global [motd].
 # [users.motd]
@@ -935,6 +955,8 @@ deny = ["169.254.169.254:*"]
 # resolve_command = true
 # bookmark_command = true
 # alias_command = true
+# show_role = false                    # Hide role info from contractors
+# show_source_ip = false               # Hide source IP from contractors
 
 
 # -----------------------------------------------------------------------------

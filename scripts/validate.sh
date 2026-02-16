@@ -445,13 +445,15 @@ phase4() {
     fi
 
     if ! $SKIP_BROWSER && $PODMAN_AVAILABLE; then
-        run_job "E2E Browser" make test-e2e-browser &
+        # Run browser + screenshots sequentially in one job to avoid
+        # Chrome container cleanup race (both use --filter "name=sks5-chrome")
+        run_job "E2E Browser + Screenshots" bash -c 'make test-e2e-browser && make test-screenshots' &
         has_jobs=true
     else
         if $SKIP_BROWSER; then
-            log_skip "E2E Browser (--skip-browser)"
+            log_skip "E2E Browser + Screenshots (--skip-browser)"
         else
-            log_skip "E2E Browser (podman not available)"
+            log_skip "E2E Browser + Screenshots (podman not available)"
         fi
         SKIP_COUNT=$(( SKIP_COUNT + 1 ))
     fi
@@ -465,15 +467,22 @@ phase4() {
     fi
 
     if $VHS_AVAILABLE; then
-        if [[ -f "$PROJECT_ROOT/contrib/demo.tape" ]]; then
-            run_job "VHS Demo" vhs "$PROJECT_ROOT/contrib/demo.tape" &
-            has_jobs=true
-        else
-            log_skip "VHS Demo (contrib/demo.tape not found)"
+        local tape_count=0
+        for tape in "$PROJECT_ROOT"/contrib/*.tape; do
+            if [[ -f "$tape" ]]; then
+                local tape_name
+                tape_name=$(basename "$tape" .tape)
+                run_job "VHS: $tape_name" vhs "$tape" &
+                has_jobs=true
+                tape_count=$(( tape_count + 1 ))
+            fi
+        done
+        if [[ $tape_count -eq 0 ]]; then
+            log_skip "VHS (no .tape files in contrib/)"
             SKIP_COUNT=$(( SKIP_COUNT + 1 ))
         fi
     else
-        log_skip "VHS Demo (vhs not installed)"
+        log_skip "VHS (vhs not installed)"
         SKIP_COUNT=$(( SKIP_COUNT + 1 ))
     fi
 

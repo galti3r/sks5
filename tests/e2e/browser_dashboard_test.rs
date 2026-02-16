@@ -656,3 +656,84 @@ async fn test_dashboard_controls_panel_exists() {
         assert!(exists, "element #{} should exist", id);
     }
 }
+
+// ---------------------------------------------------------------------------
+// Test 10: User detail modal opens on username click
+// ---------------------------------------------------------------------------
+#[tokio::test]
+#[ignore]
+async fn test_dashboard_user_detail_modal() {
+    if !podman_available() {
+        eprintln!("SKIPPED: podman not available");
+        return;
+    }
+
+    let cdp_port = ensure_chrome().await;
+    let api_port = free_port().await;
+    let hash = hash_pass("pass");
+    let _server = start_api(api_config(api_port, TOKEN, &hash)).await;
+    wait_api_ready(api_port, TOKEN).await;
+
+    let (browser, _handler) = connect_browser(cdp_port).await;
+    let page = open_dashboard(&browser, api_port, TOKEN).await;
+
+    // Wait for user table to be populated
+    wait_for_true(
+        &page,
+        "document.getElementById('userTable').innerHTML.includes('testuser')",
+        10,
+    )
+    .await;
+
+    // Click the username link to open modal
+    page.evaluate("document.querySelector('#userTable a[onclick]').click()")
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+
+    // Verify modal is visible
+    let modal_active = eval_bool(
+        &page,
+        "document.getElementById('userModal').classList.contains('active')",
+    )
+    .await;
+    assert!(modal_active, "user detail modal should be active");
+
+    // Verify modal title contains username
+    let title = eval_str(&page, "document.getElementById('modalTitle').textContent").await;
+    assert!(
+        title.contains("testuser"),
+        "modal title should contain 'testuser', got: {}",
+        title
+    );
+
+    // Verify modal has key sections
+    let content = eval_str(&page, "document.getElementById('modalContent').innerHTML").await;
+    assert!(
+        content.contains("Identity"),
+        "modal should have Identity section"
+    );
+    assert!(
+        content.contains("Authentication"),
+        "modal should have Authentication section"
+    );
+    assert!(
+        content.contains("Network"),
+        "modal should have Network section"
+    );
+    assert!(content.contains("ACL"), "modal should have ACL section");
+
+    // Close modal
+    page.evaluate("closeUserModal()").await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    let modal_closed = eval_bool(
+        &page,
+        "!document.getElementById('userModal').classList.contains('active')",
+    )
+    .await;
+    assert!(
+        modal_closed,
+        "modal should be closed after closeUserModal()"
+    );
+}

@@ -131,6 +131,7 @@ pub fn build_config_from_env() -> anyhow::Result<AppConfig> {
             audit_max_size_mb: parse_env("SKS5_AUDIT_MAX_SIZE_MB", 100),
             audit_max_files: parse_env("SKS5_AUDIT_MAX_FILES", 5),
             connection_flow_logs: parse_bool_env("SKS5_CONNECTION_FLOW_LOGS", false),
+            log_denied_connections: parse_bool_env("SKS5_LOG_DENIED_CONNECTIONS", true),
         },
         metrics: MetricsConfig {
             enabled: parse_bool_env("SKS5_METRICS_ENABLED", false),

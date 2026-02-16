@@ -310,26 +310,31 @@ fn make_motd_context() -> MotdContext {
         group: Some("ops".to_string()),
         role: "admin".to_string(),
         denied: vec!["169.254.169.254:*".to_string()],
+        allowed: vec![],
     }
+}
+
+fn default_perms() -> ShellPermissions {
+    ShellPermissions::default()
 }
 
 #[test]
 fn test_render_motd_full_context_no_colors() {
     let ctx = make_motd_context();
     let template = default_motd_template();
-    let result = render_motd(&template, &ctx, false);
+    let result = render_motd(&template, &ctx, false, &default_perms());
 
-    assert!(result.contains("Welcome bob!"));
+    assert!(result.contains("Welcome, bob!"));
     assert!(result.contains("Role: admin"));
     assert!(result.contains("Group: ops"));
     assert!(result.contains("Auth: password"));
     assert!(result.contains("Source: 10.0.0.42"));
     assert!(result.contains("Connections: 2"));
-    assert!(result.contains("ACL Policy: deny"));
+    assert!(result.contains("Policy: deny"));
     assert!(result.contains("5.0 MB / 1.0 GB"));
     assert!(result.contains("Expires: 2099-06-15T12:00:00Z"));
     assert!(result.contains("1d 2h 3m"));
-    assert!(result.contains("sks5 v1.2.3"));
+    assert!(result.contains("sks5 Proxy  v1.2.3"));
 
     // No ANSI escape codes.
     assert!(!result.contains("\x1b["));
@@ -339,7 +344,7 @@ fn test_render_motd_full_context_no_colors() {
 fn test_render_motd_full_context_with_colors() {
     let ctx = make_motd_context();
     let template = default_motd_template();
-    let result = render_motd(&template, &ctx, true);
+    let result = render_motd(&template, &ctx, true, &default_perms());
 
     // Username in bold cyan.
     assert!(result.contains("\x1b[1;36mbob\x1b[0m"));
@@ -354,7 +359,7 @@ fn test_render_motd_user_role_not_colored_when_plain() {
     let mut ctx = make_motd_context();
     ctx.role = "user".to_string();
     let template = "Role: {role}";
-    let result = render_motd(template, &ctx, true);
+    let result = render_motd(template, &ctx, true, &default_perms());
     // "user" role does NOT get ANSI colors.
     assert!(!result.contains("\x1b["));
     assert!(result.contains("Role: user"));
@@ -366,7 +371,7 @@ fn test_render_motd_bandwidth_zero_used_unlimited_limit() {
     ctx.bandwidth_used = 0;
     ctx.bandwidth_limit = 0;
     let template = "BW: {bandwidth_used} / {bandwidth_limit}";
-    let result = render_motd(template, &ctx, false);
+    let result = render_motd(template, &ctx, false, &default_perms());
     assert_eq!(result, "BW: 0 B / unlimited");
 }
 
@@ -377,7 +382,7 @@ fn test_render_motd_no_group_no_expiry_first_login() {
     ctx.expires_at = None;
     ctx.last_login = None;
     let template = "Group: {group} | Expires: {expires_at} | Last login: {last_login}";
-    let result = render_motd(template, &ctx, false);
+    let result = render_motd(template, &ctx, false, &default_perms());
     assert!(result.contains("Group: none"));
     assert!(result.contains("Expires: never"));
     assert!(result.contains("Last login: first login"));
@@ -387,7 +392,7 @@ fn test_render_motd_no_group_no_expiry_first_login() {
 fn test_render_motd_line_endings_normalized_to_crlf() {
     let ctx = make_motd_context();
     let template = "Line1\nLine2\nLine3";
-    let result = render_motd(template, &ctx, false);
+    let result = render_motd(template, &ctx, false, &default_perms());
 
     // All newlines should be \r\n.
     assert!(result.contains("Line1\r\nLine2\r\nLine3"));
@@ -407,7 +412,7 @@ fn test_render_motd_line_endings_normalized_to_crlf() {
 fn test_render_motd_custom_template_single_placeholder() {
     let ctx = make_motd_context();
     let template = "Hi {user}, your IP is {source_ip}.";
-    let result = render_motd(template, &ctx, false);
+    let result = render_motd(template, &ctx, false, &default_perms());
     assert_eq!(result, "Hi bob, your IP is 10.0.0.42.");
 }
 
@@ -418,17 +423,17 @@ fn test_render_motd_uptime_formatting() {
 
     // Less than an hour: "Xm"
     ctx.uptime = 120; // 2 minutes
-    let result = render_motd("Up: {uptime}", &ctx, false);
+    let result = render_motd("Up: {uptime}", &ctx, false, &default_perms());
     assert_eq!(result, "Up: 2m");
 
     // Hours + minutes: "Xh Xm"
     ctx.uptime = 7260; // 2h 1m
-    let result = render_motd("Up: {uptime}", &ctx, false);
+    let result = render_motd("Up: {uptime}", &ctx, false, &default_perms());
     assert_eq!(result, "Up: 2h 1m");
 
     // Days + hours + minutes: "Xd Xh Xm"
     ctx.uptime = 90000; // 1d 1h 0m
-    let result = render_motd("Up: {uptime}", &ctx, false);
+    let result = render_motd("Up: {uptime}", &ctx, false, &default_perms());
     assert_eq!(result, "Up: 1d 1h 0m");
 }
 

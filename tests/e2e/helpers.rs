@@ -163,10 +163,12 @@ pub struct TestApiServerWithState {
     pub audit: Arc<AuditLogger>,
 }
 
-/// Start the API server from an AppConfig (without quota tracker for backward compat)
+/// Start the API server from an AppConfig (without quota tracker for backward compat).
+/// Pre-binds the listener to eliminate TOCTOU port races in parallel tests.
 pub async fn start_api(config: AppConfig) -> TestApiServer {
     let api_addr = config.api.listen.clone();
-    let port: u16 = api_addr.split(':').next_back().unwrap().parse().unwrap();
+    let listener = TcpListener::bind(&api_addr).await.unwrap();
+    let port = listener.local_addr().unwrap().port();
     let config = Arc::new(config);
 
     let audit = Arc::new(AuditLogger::new(None, 0, 0, None));
@@ -187,22 +189,33 @@ pub async fn start_api(config: AppConfig) -> TestApiServer {
     };
 
     let task = tokio::spawn(async move {
-        let _ = sks5::api::start_api_server(
-            &api_addr,
+        let _ = sks5::api::start_api_server_on_listener(
+            listener,
             state,
             tokio_util::sync::CancellationToken::new(),
         )
         .await;
     });
 
-    sleep(Duration::from_millis(100)).await;
+    // Wait until the server is actually accepting connections
+    for _ in 0..50 {
+        if tokio::net::TcpStream::connect(format!("127.0.0.1:{port}"))
+            .await
+            .is_ok()
+        {
+            break;
+        }
+        sleep(Duration::from_millis(50)).await;
+    }
     TestApiServer { port, _task: task }
 }
 
-/// Start the API server and return handles to internals for data injection
+/// Start the API server and return handles to internals for data injection.
+/// Pre-binds the listener to eliminate TOCTOU port races in parallel tests.
 pub async fn start_api_with_state(config: AppConfig) -> TestApiServerWithState {
     let api_addr = config.api.listen.clone();
-    let port: u16 = api_addr.split(':').next_back().unwrap().parse().unwrap();
+    let listener = TcpListener::bind(&api_addr).await.unwrap();
+    let port = listener.local_addr().unwrap().port();
     let config = Arc::new(config);
 
     let audit = Arc::new(AuditLogger::new(None, 0, 0, None));
@@ -227,15 +240,24 @@ pub async fn start_api_with_state(config: AppConfig) -> TestApiServerWithState {
     };
 
     let task = tokio::spawn(async move {
-        let _ = sks5::api::start_api_server(
-            &api_addr,
+        let _ = sks5::api::start_api_server_on_listener(
+            listener,
             state,
             tokio_util::sync::CancellationToken::new(),
         )
         .await;
     });
 
-    sleep(Duration::from_millis(100)).await;
+    // Wait until the server is actually accepting connections
+    for _ in 0..50 {
+        if tokio::net::TcpStream::connect(format!("127.0.0.1:{port}"))
+            .await
+            .is_ok()
+        {
+            break;
+        }
+        sleep(Duration::from_millis(50)).await;
+    }
     TestApiServerWithState {
         port,
         _task: task,

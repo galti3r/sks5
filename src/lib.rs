@@ -7,6 +7,7 @@ pub mod config;
 pub mod context;
 pub mod demo;
 pub mod geoip;
+pub mod logging;
 pub mod metrics;
 pub mod motd;
 pub mod proxy;

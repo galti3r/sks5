@@ -3,7 +3,7 @@ SHELL := /bin/bash
 # Detect host architecture for musl target
 MUSL_TARGET := $(shell uname -m | sed 's/x86_64/x86_64-unknown-linux-musl/' | sed 's/aarch64/aarch64-unknown-linux-musl/')
 
-.PHONY: build build-debug build-static test test-unit test-e2e test-e2e-all test-e2e-browser test-perf test-e2e-podman test-compose test-compose-validate coverage run fmt clippy check docker-build docker-build-alpine docker-build-all docker-build-cross docker-build-multiarch docker-build-package docker-run docker-run-alpine compose-up compose-down hash-password clean security-scan test-all quick-start init completions manpage bench changelog install-act ensure-podman-socket ci-lint ci-test ci-docker-lint ci-e2e ci validate validate-docker validate-ci validate-msrv validate-coverage validate-security
+.PHONY: build build-debug build-static test test-unit test-e2e test-e2e-all test-e2e-browser test-screenshots test-perf test-e2e-podman test-compose test-compose-validate coverage run fmt clippy check docker-build docker-build-alpine docker-build-all docker-build-cross docker-build-multiarch docker-build-package docker-run docker-run-alpine compose-up compose-down hash-password clean security-scan test-all quick-start init completions manpage bench changelog install-act ensure-podman-socket ci-lint ci-test ci-docker-lint ci-e2e ci validate validate-docker validate-ci validate-msrv validate-coverage validate-security
 
 build:
 	cargo build --release
@@ -34,6 +34,16 @@ test-e2e-browser:
 		{ echo "Pulling chromedp/headless-shell..."; podman pull docker.io/chromedp/headless-shell:latest; }
 	@status=0; \
 	cargo test --test e2e_browser_dashboard -- --ignored --nocapture || status=$$?; \
+	podman ps -aq --filter "name=sks5-chrome" | xargs -r podman stop 2>/dev/null || true; \
+	exit $$status
+
+test-screenshots:
+	@command -v podman >/dev/null 2>&1 || { echo "Error: podman is required for screenshot tests"; exit 1; }
+	@podman image exists docker.io/chromedp/headless-shell:latest 2>/dev/null || \
+		{ echo "Pulling chromedp/headless-shell..."; podman pull docker.io/chromedp/headless-shell:latest; }
+	@mkdir -p screenshots
+	@status=0; \
+	SCREENSHOT_DIR=screenshots cargo test --test e2e_browser_screenshots -- --ignored --nocapture || status=$$?; \
 	podman ps -aq --filter "name=sks5-chrome" | xargs -r podman stop 2>/dev/null || true; \
 	exit $$status
 
