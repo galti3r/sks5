@@ -220,7 +220,7 @@ axum = { version = "0.8.8", features = ["ws"] }
 prometheus-client = "0.24.0"
 
 # GeoIP
-maxminddb = "0.27.2"
+maxminddb = "0.27.3"
 
 # HTTP client (webhooks)
 reqwest = { version = "0.12.12", default-features = false, features = ["rustls-tls", "json"] }
