@@ -3,7 +3,7 @@ SHELL := /bin/bash
 # Detect host architecture for musl target
 MUSL_TARGET := $(shell uname -m | sed 's/x86_64/x86_64-unknown-linux-musl/' | sed 's/aarch64/aarch64-unknown-linux-musl/')
 
-.PHONY: build build-debug build-static test test-unit test-e2e test-e2e-all test-e2e-browser test-perf test-e2e-podman test-compose test-compose-validate coverage run fmt clippy check docker-build docker-build-alpine docker-build-all docker-build-cross docker-build-multiarch docker-build-package docker-run docker-run-alpine compose-up compose-down hash-password clean security-scan test-all quick-start init completions manpage bench changelog install-act ensure-podman-socket ci-lint ci-test ci-docker-lint ci-e2e ci validate
+.PHONY: build build-debug build-static test test-unit test-e2e test-e2e-all test-e2e-browser test-perf test-e2e-podman test-compose test-compose-validate coverage run fmt clippy check docker-build docker-build-alpine docker-build-all docker-build-cross docker-build-multiarch docker-build-package docker-run docker-run-alpine compose-up compose-down hash-password clean security-scan test-all quick-start init completions manpage bench changelog install-act ensure-podman-socket ci-lint ci-test ci-docker-lint ci-e2e ci validate validate-docker validate-ci validate-msrv validate-coverage validate-security
 
 build:
 	cargo build --release
@@ -68,6 +68,19 @@ check:
 
 security-scan:
 	./scripts/security-scan.sh
+
+validate-msrv:
+	@rustup toolchain list | grep -q '^1\.88' || rustup toolchain install 1.88
+	cargo +1.88 check
+
+validate-coverage:
+	@rustup component add llvm-tools-preview 2>/dev/null || true
+	@command -v cargo-llvm-cov >/dev/null 2>&1 || cargo install cargo-llvm-cov --locked
+	cargo llvm-cov --lcov --output-path lcov.info --lib --test unit
+
+validate-security:
+	@cargo audit
+	@cargo deny check
 
 docker-build:
 	podman build -t sks5:latest .
@@ -184,5 +197,12 @@ ci-e2e: ensure-podman-socket
 ci: ci-lint ci-test ci-e2e ci-docker-lint
 	@echo "Local CI passed (lint + test + e2e + docker-lint)"
 
-validate: fmt clippy test test-e2e-browser ci
-	@echo "All validations passed!"
+validate:
+	@./scripts/validate.sh
+
+validate-docker:
+	@./scripts/validate.sh --with-docker
+
+# Sequential CI reproduction (kept for backwards compatibility)
+validate-ci: ci-lint ci-test ci-e2e ci-docker-lint
+	@echo "CI reproduction passed (via act)"
