@@ -455,11 +455,6 @@ async fn socks5_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         return Ok(None);
     }
 
-    if !user.allow_forwarding {
-        warn!(conn_id = %conn_id, user = %creds.username, "SOCKS5 forwarding denied");
-        return Ok(None);
-    }
-
     let target = protocol::read_connect_request(stream).await?;
     let host = target.host_string();
     let port = target.port();

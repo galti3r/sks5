@@ -64,7 +64,7 @@ async fn test_acl_fqdn_allow_local_forward() {
 
 // ---------------------------------------------------------------------------
 // Test 2: ACL deny blocks forward to denied target
-// Channel opens but relay fails (ACL checked post-connect) - no data echoed
+// ACL pre-check rejects the channel immediately at SSH layer.
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn test_acl_fqdn_deny_local_forward() {
@@ -97,27 +97,21 @@ async fn test_acl_fqdn_deny_local_forward() {
         .unwrap();
     assert!(ok.success());
 
-    // Channel opens but relay fails inside the spawned task
-    let channel = handle
+    // Channel open should fail because ACL deny rule matches
+    let result = handle
         .channel_open_direct_tcpip("127.0.0.1", echo_port as u32, "127.0.0.1", 12345)
-        .await
-        .unwrap();
+        .await;
 
-    let mut stream = channel.into_stream();
-    let _ = stream.write_all(b"test").await;
-
-    // Should get EOF or error (relay denied by ACL)
-    let mut buf = vec![0u8; 1024];
-    let result = tokio::time::timeout(Duration::from_secs(2), stream.read(&mut buf)).await;
-    match result {
-        Ok(Ok(n)) if n > 0 => panic!("should not echo data when ACL denies, got {} bytes", n),
-        _ => {} // EOF, error, or timeout — all expected
-    }
+    assert!(
+        result.is_err(),
+        "forwarding should be denied by ACL deny rule"
+    );
 }
 
 // ---------------------------------------------------------------------------
 // Test 3: ACL default deny blocks unlisted targets
-// Channel opens but relay fails (default deny) - no data echoed
+// ACL pre-check rejects the channel immediately (default policy = deny,
+// no allow rule matches).
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn test_acl_fqdn_default_deny() {
@@ -144,21 +138,15 @@ async fn test_acl_fqdn_default_deny() {
         .unwrap();
     assert!(ok.success());
 
-    // Channel opens but relay fails (default deny)
-    let channel = handle
+    // Channel open should fail because default policy is deny and no allow rule matches
+    let result = handle
         .channel_open_direct_tcpip("127.0.0.1", echo_port as u32, "127.0.0.1", 12345)
-        .await
-        .unwrap();
+        .await;
 
-    let mut stream = channel.into_stream();
-    let _ = stream.write_all(b"test").await;
-
-    let mut buf = vec![0u8; 1024];
-    let result = tokio::time::timeout(Duration::from_secs(2), stream.read(&mut buf)).await;
-    match result {
-        Ok(Ok(n)) if n > 0 => panic!("should not echo data when default deny, got {} bytes", n),
-        _ => {} // EOF, error, or timeout — all expected
-    }
+    assert!(
+        result.is_err(),
+        "forwarding should be denied by default deny policy"
+    );
 }
 
 // ---------------------------------------------------------------------------

@@ -344,8 +344,13 @@ allow_shell = true
 [[users]]
 username = "nofwd"
 password_hash = "{user2_hash}"
-allow_forwarding = false
 allow_shell = true
+
+[users.acl]
+default_policy = "deny"
+allow = []
+deny = []
+inherit = false
 "##
     );
     toml::from_str(&toml_str).unwrap()

@@ -83,17 +83,6 @@ impl SshHandler {
             None => return Ok(None),
         };
 
-        if !user.allow_forwarding {
-            warn!(
-                conn_id = %self.conn_id,
-                user = %username,
-                host = %host_to_connect,
-                port = port_to_connect,
-                "Forwarding denied by config"
-            );
-            return Ok(None);
-        }
-
         // Time-based access check
         if !user.check_time_access() {
             warn!(
@@ -215,6 +204,21 @@ impl SshHandler {
                 return Ok(None);
             }
         };
+
+        // ACL pre-check: reject the channel immediately if ACL would deny it
+        if user.acl.check(host_to_connect, port, None) == crate::config::acl::AclPolicy::Deny {
+            warn!(
+                conn_id = %self.conn_id,
+                user = %username,
+                host = %host_to_connect,
+                port = port,
+                "Forwarding denied by ACL"
+            );
+            self.ctx
+                .metrics
+                .record_error(crate::metrics::error_types::ACL_DENIED);
+            return Ok(None);
+        }
 
         Ok(Some((user, username, port)))
     }

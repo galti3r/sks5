@@ -520,7 +520,7 @@ fn build_quick_config(
             password_hash: Some(password_hash),
             authorized_keys: Vec::new(),
             allow_forwarding: true,
-            allow_shell: true,
+            allow_shell: Some(true),
             max_new_connections_per_minute: 0,
             max_bandwidth_kbps: 0,
             source_ips: Vec::new(),

@@ -73,7 +73,7 @@
 <div class="content">
   <div class="panel">
     <h2>Users</h2>
-    <table><thead><tr><th>Username</th><th>Forwarding</th><th>Shell</th><th>Active</th></tr></thead><tbody id="userTable"></tbody></table>
+    <table><thead><tr><th>Username</th><th>Shell</th><th>Active</th></tr></thead><tbody id="userTable"></tbody></table>
   </div>
 
   <div class="panel">
@@ -202,7 +202,7 @@ function updateUI(data) {
   if (data.users) {
     const conns = data.connections || {};
     const tb = document.getElementById('userTable');
-    tb.innerHTML = data.users.map(u => '<tr><td>'+u.username+'</td><td>'+(u.allow_forwarding?'Yes':'No')+'</td><td>'+(u.allow_shell?'Yes':'No')+'</td><td>'+(conns[u.username]||0)+'</td></tr>').join('');
+    tb.innerHTML = data.users.map(u => '<tr><td>'+u.username+'</td><td>'+(u.allow_shell?'Yes':'No')+'</td><td>'+(conns[u.username]||0)+'</td></tr>').join('');
   }
 
   // Bans
