@@ -1,9 +1,9 @@
 # sks5
 
 [![CI](https://github.com/galti3r/sks5/actions/workflows/ci.yml/badge.svg)](https://github.com/galti3r/sks5/actions/workflows/ci.yml) [![codecov](https://codecov.io/gh/galti3r/sks5/graph/badge.svg)](https://codecov.io/gh/galti3r/sks5) [![deps.rs](https://deps.rs/repo/github/galti3r/sks5/status.svg)](https://deps.rs/repo/github/galti3r/sks5) [![Crates.io](https://img.shields.io/crates/v/sks5.svg)](https://crates.io/crates/sks5) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![docs.rs](https://img.shields.io/docsrs/sks5)](https://docs.rs/sks5) [![Docker](https://img.shields.io/docker/v/dockerhubgalti3r/sks5?label=docker)](https://hub.docker.com/r/dockerhubgalti3r/sks5) [![Homebrew](https://img.shields.io/badge/homebrew-sks5-FBB040?logo=homebrew)](https://github.com/galti3r/homebrew-sks5) [![Release](https://img.shields.io/github/v/release/galti3r/sks5)](https://github.com/galti3r/sks5/releases/latest) [![MSRV](https://img.shields.io/badge/MSRV-1.88-orange.svg)](https://blog.rust-lang.org/)
+[![docs.rs](https://img.shields.io/docsrs/sks5)](https://docs.rs/sks5) [![Docker](https://img.shields.io/docker/v/galti3r/sks5?label=docker)](https://hub.docker.com/r/galti3r/sks5) [![Homebrew](https://img.shields.io/badge/homebrew-sks5-FBB040?logo=homebrew)](https://github.com/galti3r/homebrew-sks5) [![Release](https://img.shields.io/github/v/release/galti3r/sks5)](https://github.com/galti3r/sks5/releases/latest) [![MSRV](https://img.shields.io/badge/MSRV-1.88-orange.svg)](https://blog.rust-lang.org/)
 
-> Zero-dependency scratch-based Docker images. Rootless by default. Single static binary. Multi-user auth. Real-time dashboard.
+> Lightweight Alpine-based Docker images. Rootless by default. Single static binary. Multi-user auth. Real-time dashboard.
 
 <p align="center">
   <img src="https://galti3r.github.io/sks5/demo.gif" alt="sks5 demo" width="800">
@@ -73,16 +73,16 @@ flowchart LR
 | :shield: Access Control | Per-user and global ACL, CIDR/FQDN wildcards, GeoIP country filtering, anti-SSRF guard, time-based access windows, account expiration |
 | :no_entry: Security | Auto-ban (fail2ban-style), IP reputation scoring, pre-auth rate limiting, SFTP/SCP blocked, password zeroization, webhook SSRF protection |
 | :computer: Shell | Virtual filesystem, `show` commands (status, bandwidth, connections, ACL, fingerprint, history), `test`/`ping`/`resolve`, bookmarks, aliases, tab completion, MOTD |
-| :bar_chart: Observability | Prometheus metrics, structured audit logs, webhooks with HMAC, alerting rules, real-time web dashboard with SSE |
+| :bar_chart: Observability | Prometheus metrics, structured audit logs, webhooks with HMAC (Slack/Discord/custom formats), alerting rules, real-time web dashboard with SSE |
 | :wrench: Management | REST API, hot config reload, maintenance mode/windows, user groups and roles, quotas (bandwidth + connections), broadcast/kick |
-| :whale: Container | `scratch` image (~5 MB), Alpine variant (~12 MB), rootless (UID 65534), static musl binary, multi-arch (amd64/arm64) |
+| :whale: Container | Alpine image (~12 MB, default), `scratch` variant (~5 MB), rootless, static musl binary, multi-arch (amd64/arm64) |
 | :rocket: Deployment | Docker, Podman, Kubernetes, bare metal, single static binary, `cargo install` |
 
 ## Install
 
 ### Docker / Podman (recommended)
 
-sks5 ships as a **~5 MB scratch image** — no OS, no shell, just the binary + CA certs.
+sks5 ships as a **~12 MB Alpine image** with shell access for easy debugging. A minimal scratch variant is also available.
 
 ```bash
 # Docker
@@ -94,8 +94,9 @@ podman run -p 2222:2222 ghcr.io/galti3r/sks5:latest quick-start --password demo
 
 | Tag | Base | Size | Shell | Use case |
 |-----|------|------|-------|----------|
-| `latest` / `1.x.x` | scratch | ~5 MB | No | Production (minimal attack surface) |
-| `latest-alpine` / `1.x.x-alpine` | Alpine 3.21 | ~12 MB | Yes | Debug / troubleshooting |
+| `latest` / `1.x.x` | Alpine 3.21 | ~12 MB | Yes | Production (default) |
+| `latest-alpine` / `1.x.x-alpine` | Alpine 3.21 | ~12 MB | Yes | Alias for `latest` |
+| `latest-scratch` / `1.x.x-scratch` | scratch | ~5 MB | No | Minimal attack surface |
 
 ### Cargo
 
@@ -204,7 +205,7 @@ See [config.example.toml](config.example.toml) for a complete configuration refe
 | `[motd]` | No | Message of the Day template and colors |
 | `[acl]` | No | Global ACL rules (inherited by all users) |
 | `[[groups]]` | No | User groups for config inheritance |
-| `[[webhooks]]` | No | HTTP webhooks with retry |
+| `[[webhooks]]` | No | HTTP webhooks with retry (Slack/Discord/custom formats) |
 | `[alerting]` | No | Alert rules on bandwidth/connections/auth |
 | `[[maintenance_windows]]` | No | Scheduled maintenance windows |
 | `[connection_pool]` | No | TCP connection pooling |
@@ -454,20 +455,24 @@ sks5 images are available in two variants, both multi-arch (amd64 + arm64):
 
 | Variant | Image | Base | Size | Rootless |
 |---------|-------|------|------|:--------:|
-| **Minimal** (default) | `ghcr.io/galti3r/sks5:latest` | `scratch` | ~5 MB | UID 65534 |
-| **Alpine** | `ghcr.io/galti3r/sks5:latest-alpine` | Alpine 3.21 | ~12 MB | UID 1000 |
+| **Alpine** (default) | `ghcr.io/galti3r/sks5:latest` | Alpine 3.21 | ~12 MB | UID 1000 |
+| **Scratch** | `ghcr.io/galti3r/sks5:latest-scratch` | `scratch` | ~5 MB | UID 65534 |
 
 ### Quick Start with Docker / Podman
 
 ```bash
-# Minimal (scratch) — production
+# Alpine (default) — production
 docker run -p 2222:2222 -p 1080:1080 \
   -v ./config.toml:/etc/sks5/config.toml:ro \
   ghcr.io/galti3r/sks5:latest
 
-# Alpine — with shell for debugging
+# Shell access for debugging
 docker run -it -p 2222:2222 \
-  ghcr.io/galti3r/sks5:latest-alpine sh
+  ghcr.io/galti3r/sks5:latest sh
+
+# Scratch — minimal attack surface
+docker run -p 2222:2222 \
+  ghcr.io/galti3r/sks5:latest-scratch quick-start --password demo
 
 # Podman (drop-in replacement)
 podman run -p 2222:2222 ghcr.io/galti3r/sks5:latest quick-start --password demo
@@ -479,11 +484,11 @@ podman run -p 2222:2222 ghcr.io/galti3r/sks5:latest quick-start --password demo
 ### Build Locally
 
 ```bash
-make docker-build          # Build scratch image (sks5:latest)
-make docker-build-alpine   # Build Alpine image (sks5:alpine)
+make docker-build          # Build Alpine image (sks5:latest)
+make docker-build-scratch  # Build scratch image (sks5:scratch)
 make docker-build-all      # Build both variants
-make docker-run            # Run scratch container
-make docker-run-alpine     # Run Alpine container
+make docker-run            # Run Alpine container
+make docker-run-scratch    # Run scratch container
 ```
 
 ### Compose (Docker & Podman)
@@ -601,7 +606,7 @@ make bench             # Criterion benchmarks (ACL, password, config, SOCKS5)
 - SFTP/SCP/reverse forwarding blocked
 - Time-based access control (per-user login hours/days)
 - Account expiration with automatic denial
-- Scratch-based container (~5 MB, zero packages, no shell)
+- Alpine-based container (~12 MB, default) and scratch variant (~5 MB, zero packages, no shell)
 - Rootless container (runs as non-root UID)
 - Static musl binary (no dynamic library dependencies)
 - Multi-arch images signed with cosign (Sigstore keyless)

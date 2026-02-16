@@ -10,7 +10,7 @@ use tracing_subscriber::EnvFilter;
 use crate::config::types::LogFormat;
 
 /// Custom tracing formatter that prepends colored [ALLOW]/[DENY] prefixes
-/// to log events based on message content.
+/// to log events based on message content, and colorizes known field names.
 pub struct PrefixedFormatter<E> {
     inner: E,
     ansi: bool,
@@ -54,9 +54,62 @@ where
             }
         }
 
-        self.inner.format_event(ctx, writer, event)
+        // Delegate to the inner formatter, then post-process the output
+        // to colorize known field names when ANSI is enabled.
+        if self.ansi {
+            // Write to a temporary buffer so we can colorize fields
+            let mut buf = String::new();
+            let buf_writer = Writer::new(&mut buf);
+            self.inner.format_event(ctx, buf_writer, event)?;
+            let colorized = colorize_fields(&buf);
+            write!(writer, "{}", colorized)?;
+            Ok(())
+        } else {
+            self.inner.format_event(ctx, writer, event)
+        }
     }
 }
+
+/// Colorize known field names in a log line.
+/// Uses ANSI codes: cyan=user, yellow=host/target, magenta=ip/peer,
+/// dim=conn_id, green=bytes, red=error/reason.
+fn colorize_fields(line: &str) -> String {
+    let mut result = line.to_string();
+    // Order matters: replace longer names first to avoid partial matches
+    for (field, color) in FIELD_COLORS {
+        let pattern = format!("{}=", field);
+        if result.contains(&pattern) {
+            let colored = format!("\x1b[{}m{}=\x1b[0m", color, field);
+            result = result.replace(&pattern, &colored);
+        }
+    }
+    result
+}
+
+/// Field name → ANSI color code mapping.
+const FIELD_COLORS: &[(&str, &str)] = &[
+    // cyan (36) — user identity
+    ("user", "36"),
+    // yellow (33) — targets
+    ("host", "33"),
+    ("target", "33"),
+    // magenta (35) — network addresses
+    ("ip", "35"),
+    ("peer", "35"),
+    ("resolved_ip", "35"),
+    // dim (2) — correlation
+    ("conn_id", "2"),
+    ("trace_id", "2"),
+    // green (32) — data transfer
+    ("bytes_up", "32"),
+    ("bytes_down", "32"),
+    ("bytes", "32"),
+    ("duration_ms", "32"),
+    // red (31) — errors
+    ("error", "31"),
+    ("error_type", "31"),
+    ("reason", "31"),
+];
 
 /// Visitor that extracts the message field from a tracing event.
 struct MessageVisitor {
@@ -99,7 +152,8 @@ fn is_allow_pattern(msg: &str) -> bool {
 /// Initialize the global tracing subscriber.
 ///
 /// In Pretty mode, wraps the default formatter with `PrefixedFormatter`
-/// to prepend colored [ALLOW]/[DENY] tags. JSON mode is unchanged.
+/// to prepend colored [ALLOW]/[DENY] tags and colorize field names.
+/// JSON mode is unchanged.
 pub fn setup_logging(level: &str, format: LogFormat) {
     let filter = EnvFilter::try_new(level).unwrap_or_else(|_| EnvFilter::new("info"));
 
@@ -162,5 +216,21 @@ mod tests {
         assert!(!is_allow_pattern("starting sks5 proxy server"));
         assert!(!is_deny_pattern("server shutting down"));
         assert!(!is_allow_pattern("server shutting down"));
+    }
+
+    #[test]
+    fn test_colorize_fields() {
+        let line = "user=alice target=example.com:443 bytes_up=1024";
+        let result = colorize_fields(line);
+        assert!(result.contains("\x1b[36muser=\x1b[0m"));
+        assert!(result.contains("\x1b[33mtarget=\x1b[0m"));
+        assert!(result.contains("\x1b[32mbytes_up=\x1b[0m"));
+    }
+
+    #[test]
+    fn test_colorize_no_fields() {
+        let line = "Starting sks5 proxy server";
+        let result = colorize_fields(line);
+        assert_eq!(result, line);
     }
 }

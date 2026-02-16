@@ -34,6 +34,7 @@ async fn start_api_with_engine(config: sks5::config::types::AppConfig) -> (u16, 
         ssh_listen_addr: None,
         quota_tracker: None,
         webhook_dispatcher: None,
+        kick_tokens: None,
     };
 
     let _task = tokio::spawn(async move {

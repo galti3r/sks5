@@ -62,6 +62,7 @@ allow_shell = true
         ssh_listen_addr: None,
         quota_tracker: None,
         webhook_dispatcher: None,
+        kick_tokens: None,
     };
 
     let api_addr = format!("127.0.0.1:{api_port}");
@@ -142,6 +143,7 @@ allow_shell = true
         ssh_listen_addr: None,
         quota_tracker: None,
         webhook_dispatcher: None,
+        kick_tokens: None,
     };
 
     let api_addr = format!("127.0.0.1:{api_port}");
@@ -221,6 +223,7 @@ allow_shell = true
         ssh_listen_addr: None,
         quota_tracker: None,
         webhook_dispatcher: None,
+        kick_tokens: None,
     };
 
     let api_addr = format!("127.0.0.1:{api_port}");

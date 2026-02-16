@@ -1129,12 +1129,30 @@ impl ParsedUpstreamProxy {
     }
 }
 
+/// Webhook payload format for different platforms.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WebhookFormat {
+    #[default]
+    Generic,
+    Slack,
+    Discord,
+    Custom,
+}
+
 #[derive(Clone, Deserialize, Serialize)]
 pub struct WebhookConfig {
     pub url: String,
     #[serde(default)]
     pub events: Vec<String>,
     pub secret: Option<String>,
+    /// Payload format: generic (default), slack, discord, or custom.
+    #[serde(default)]
+    pub format: WebhookFormat,
+    /// Custom template string for `format = "custom"`.
+    /// Placeholders: {event_type}, {timestamp}, {username}, {source_ip},
+    /// {target_host}, {data_json}, {summary}.
+    pub template: Option<String>,
     /// Allow webhook delivery to private/internal IPs (for local monitoring).
     #[serde(default)]
     pub allow_private_ips: bool,
@@ -1165,6 +1183,17 @@ impl fmt::Debug for WebhookConfig {
             .field("url", &self.url)
             .field("events", &self.events)
             .field("secret", &self.secret.as_ref().map(|_| "***"))
+            .field("format", &self.format)
+            .field(
+                "template",
+                &self.template.as_ref().map(|t| {
+                    if t.len() > 50 {
+                        format!("{}...", &t[..50])
+                    } else {
+                        t.clone()
+                    }
+                }),
+            )
             .finish()
     }
 }

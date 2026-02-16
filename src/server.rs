@@ -156,6 +156,9 @@ where
         services_shutdown.clone(),
     );
 
+    // Kick registry: per-user cancellation tokens for admin kick functionality
+    let kick_tokens = Arc::new(dashmap::DashMap::new());
+
     // Shared context for SSH and SOCKS5
     let app_ctx = Arc::new(AppContext {
         config: config.clone(),
@@ -168,6 +171,7 @@ where
         webhook_dispatcher: webhook_dispatcher.clone(),
         alert_engine: alert_engine.clone(),
         start_time: std::time::Instant::now(),
+        kick_tokens: kick_tokens.clone(),
     });
 
     // Run post-init hook (e.g. inject demo data)
@@ -220,6 +224,7 @@ where
         config_path: config_path.clone(),
         quota_tracker: quota_tracker.clone(),
         webhook_dispatcher: webhook_dispatcher.clone(),
+        kick_tokens: kick_tokens.clone(),
         shutdown: services_shutdown.clone(),
     });
 
@@ -429,6 +434,7 @@ struct ApiServerParams {
     config_path: Option<PathBuf>,
     quota_tracker: Arc<QuotaTracker>,
     webhook_dispatcher: Option<Arc<WebhookDispatcher>>,
+    kick_tokens: Arc<dashmap::DashMap<String, Vec<CancellationToken>>>,
     shutdown: CancellationToken,
 }
 
@@ -452,6 +458,7 @@ fn spawn_api_server(params: ApiServerParams) -> Option<tokio::task::JoinHandle<(
         ssh_listen_addr: Some(params.ssh_listen_addr),
         quota_tracker: Some(params.quota_tracker),
         webhook_dispatcher: params.webhook_dispatcher,
+        kick_tokens: Some(params.kick_tokens),
     };
 
     // Spawn background task to clean up expired SSE tickets every 60s

@@ -290,7 +290,16 @@ async fn socks5_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         return Ok(None);
     }
 
+    let flow_logs = ctx.config.logging.connection_flow_logs;
+    if flow_logs {
+        debug!(conn_id = %conn_id, peer = %peer_addr, "flow: pre-auth check passed");
+    }
+
     let methods = protocol::read_greeting(stream).await?;
+
+    if flow_logs {
+        debug!(conn_id = %conn_id, peer = %peer_addr, methods = ?methods, "flow: greeting received");
+    }
 
     if !methods.contains(&protocol::AUTH_PASSWORD) {
         protocol::send_method_selection(stream, protocol::AUTH_NO_ACCEPTABLE).await?;
@@ -373,6 +382,9 @@ async fn socks5_handshake<S: AsyncRead + AsyncWrite + Unpin>(
 
     socks_auth::send_auth_result(stream, true).await?;
     info!(conn_id = %conn_id, user = %creds.username, ip = %peer_addr, "SOCKS5 auth success");
+    if flow_logs {
+        debug!(conn_id = %conn_id, user = %creds.username, "flow: auth completed, checking access controls");
+    }
     ctx.audit
         .log_auth_success_cid(&creds.username, peer_addr, "socks5", conn_id)
         .await;
@@ -476,11 +488,18 @@ async fn socks5_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         return Ok(None);
     }
 
+    if flow_logs {
+        debug!(conn_id = %conn_id, user = %creds.username, "flow: access controls passed, reading CONNECT request");
+    }
+
     let target = protocol::read_connect_request(stream).await?;
     let host = target.host_string();
     let port = target.port();
 
     debug!(conn_id = %conn_id, user = %creds.username, target = %format!("{}:{}", host, port), "SOCKS5 CONNECT request");
+    if flow_logs {
+        debug!(conn_id = %conn_id, user = %creds.username, target = %format!("{}:{}", host, port), "flow: connecting to target");
+    }
 
     let source_ip_str = peer_addr.ip().to_string();
 
@@ -501,6 +520,9 @@ async fn socks5_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         .await
     {
         Ok((target_stream, resolved_addr, guard)) => {
+            if flow_logs {
+                debug!(conn_id = %conn_id, user = %creds.username, resolved = %resolved_addr, "flow: target connected, starting relay");
+            }
             // Record successful connection in cumulative counters
             ctx.quota_tracker.record_connection_success(&creds.username);
             let bind_addr = match resolved_addr {

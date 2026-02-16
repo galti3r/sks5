@@ -150,6 +150,8 @@ impl AlertEngine {
                 url: url.clone(),
                 events: vec![],
                 secret: None,
+                format: Default::default(),
+                template: None,
                 allow_private_ips: false,
                 max_retries: 3,
                 retry_delay_ms: 1000,

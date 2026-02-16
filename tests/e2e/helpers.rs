@@ -91,6 +91,7 @@ pub async fn start_ssh(config: AppConfig) -> TestSshServer {
         webhook_dispatcher: None,
         alert_engine: None,
         start_time: std::time::Instant::now(),
+        kick_tokens: std::sync::Arc::new(dashmap::DashMap::new()),
     });
 
     let key_pair =
@@ -138,6 +139,7 @@ pub async fn start_socks5(config: AppConfig) -> TestSocksServer {
         webhook_dispatcher: None,
         alert_engine: None,
         start_time: std::time::Instant::now(),
+        kick_tokens: std::sync::Arc::new(dashmap::DashMap::new()),
     });
 
     let task = tokio::spawn(async move {
@@ -186,6 +188,7 @@ pub async fn start_api(config: AppConfig) -> TestApiServer {
         ssh_listen_addr: None,
         quota_tracker: None,
         webhook_dispatcher: None,
+        kick_tokens: None,
     };
 
     let task = tokio::spawn(async move {
@@ -237,6 +240,7 @@ pub async fn start_api_with_state(config: AppConfig) -> TestApiServerWithState {
         ssh_listen_addr: None,
         quota_tracker: Some(quota_tracker.clone()),
         webhook_dispatcher: None,
+        kick_tokens: None,
     };
 
     let task = tokio::spawn(async move {

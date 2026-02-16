@@ -83,11 +83,14 @@ make build-static
 **Docker / Podman:**
 
 ```bash
-# Build the image
-podman build -t sks5:latest .
+# Build the Alpine image (default)
+podman build -f Containerfile.alpine -t sks5:latest .
+
+# Build the scratch image (minimal)
+podman build -t sks5:scratch .
 
 # Or with Docker
-docker build -t sks5:latest .
+docker build -f Containerfile.alpine -t sks5:latest .
 ```
 
 ### Quick Start
@@ -899,27 +902,53 @@ window_secs = 60
 
 ### Webhooks
 
-Webhooks deliver HTTP POST notifications when server events occur:
+Webhooks deliver HTTP POST notifications when server events occur. Supports native **Slack**, **Discord**, and **custom template** formats.
 
 ```toml
+# Generic webhook (default JSON payload)
 [[webhooks]]
 url = "https://hooks.example.com/sks5"
 events = ["auth_success", "auth_failure", "connection_open", "connection_close", "ban"]
 secret = "hmac-secret-for-verification"
-allow_private_ips = false
 max_retries = 3
-retry_delay_ms = 1000
-max_retry_delay_ms = 30000
+
+# Slack webhook (Block Kit format)
+[[webhooks]]
+url = "https://hooks.slack.com/services/T.../B.../xxx"
+format = "slack"
+events = ["auth_failure", "ban"]
+
+# Discord webhook (Embed format with color-coded severity)
+[[webhooks]]
+url = "https://discord.com/api/webhooks/123/abc"
+format = "discord"
+events = ["auth_success", "auth_failure", "ban"]
+
+# Custom template
+[[webhooks]]
+url = "https://hooks.example.com/custom"
+format = "custom"
+template = '{"alert": "{event_type}", "user": "{username}", "ip": "{source_ip}", "summary": "{summary}"}'
+events = ["auth_failure"]
 ```
 
-**Event types:**
-- `auth_success` -- successful authentication
-- `auth_failure` -- failed authentication attempt
-- `connection_open` -- new proxy connection established
-- `connection_close` -- proxy connection closed
-- `ban` -- IP address banned
+**Webhook formats:**
+- `generic` (default) -- raw JSON payload with `event_type`, `timestamp`, and `data` fields
+- `slack` -- Slack Block Kit with emoji per event type and structured fields
+- `discord` -- Discord embed with color-coded severity (red=deny, green=success, yellow=warning, blue=info)
+- `custom` -- User-defined template with placeholder substitution: `{event_type}`, `{timestamp}`, `{username}`, `{source_ip}`, `{target_host}`, `{data_json}`, `{summary}`
 
-When a `secret` is configured, the webhook payload includes an `X-Signature-256` header containing an HMAC-SHA256 signature for verification.
+**Event types:**
+- `auth_success` / `auth_failure` -- authentication events
+- `connection_open` / `connection_close` / `proxy_complete` -- proxy connection lifecycle
+- `ban` / `unban` -- IP ban events
+- `config_reload` -- configuration reload
+- `maintenance_start` / `maintenance_end` -- maintenance mode transitions
+- `rate_limited` -- rate limit triggered
+- `quota_exceeded` -- quota limit reached
+- `alert_triggered` -- alerting rule fired
+
+When a `secret` is configured, the webhook payload includes an `X-Signature-256` header containing an HMAC-SHA256 signature for verification. HMAC is computed on the final formatted body.
 
 Retry policy uses exponential backoff: the initial delay doubles on each attempt, capped at `max_retry_delay_ms`.
 

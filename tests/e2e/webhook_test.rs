@@ -56,6 +56,8 @@ async fn test_webhook_receives_events() {
         max_retries: 0,
         retry_delay_ms: 1000,
         max_retry_delay_ms: 30000,
+        format: Default::default(),
+        template: None,
     }];
 
     let dispatcher = WebhookDispatcher::new(webhook_configs);
@@ -137,6 +139,8 @@ async fn test_webhook_hmac_signature() {
         max_retries: 0,
         retry_delay_ms: 1000,
         max_retry_delay_ms: 30000,
+        format: Default::default(),
+        template: None,
     }];
 
     let dispatcher = WebhookDispatcher::new(webhook_configs);
@@ -168,6 +172,8 @@ async fn test_webhook_event_filter() {
         max_retries: 0,
         retry_delay_ms: 1000,
         max_retry_delay_ms: 30000,
+        format: Default::default(),
+        template: None,
     }];
 
     let dispatcher = WebhookDispatcher::new(webhook_configs);
@@ -223,6 +229,8 @@ async fn test_webhook_timeout_does_not_block() {
         max_retries: 0,
         retry_delay_ms: 1000,
         max_retry_delay_ms: 30000,
+        format: Default::default(),
+        template: None,
     }];
 
     let dispatcher = WebhookDispatcher::new(webhook_configs);

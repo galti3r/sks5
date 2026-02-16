@@ -271,6 +271,21 @@ fn validate_webhooks(config: &AppConfig) -> Result<()> {
                 }
             }
         }
+
+        // Validate webhook format + template
+        if webhook.format == types::WebhookFormat::Custom && webhook.template.is_none() {
+            anyhow::bail!(
+                "webhook[{}] format is 'custom' but no template is provided",
+                i
+            );
+        }
+        if webhook.format != types::WebhookFormat::Custom && webhook.template.is_some() {
+            tracing::warn!(
+                webhook_index = i,
+                url = %webhook.url,
+                "webhook has template but format is not 'custom' — template will be ignored"
+            );
+        }
     }
     Ok(())
 }

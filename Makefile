@@ -3,7 +3,7 @@ SHELL := /bin/bash
 # Detect host architecture for musl target
 MUSL_TARGET := $(shell uname -m | sed 's/x86_64/x86_64-unknown-linux-musl/' | sed 's/aarch64/aarch64-unknown-linux-musl/')
 
-.PHONY: build build-debug build-static test test-unit test-e2e test-e2e-all test-e2e-browser test-screenshots test-perf test-e2e-podman test-compose test-compose-validate coverage run fmt clippy check docker-build docker-build-alpine docker-build-all docker-build-cross docker-build-multiarch docker-build-package docker-run docker-run-alpine compose-up compose-down hash-password clean security-scan test-all quick-start init completions manpage bench changelog install-act ensure-podman-socket ci-lint ci-test ci-docker-lint ci-e2e ci validate validate-docker validate-ci validate-msrv validate-coverage validate-security
+.PHONY: build build-debug build-static test test-unit test-e2e test-e2e-all test-e2e-browser test-screenshots test-perf test-e2e-podman test-compose test-compose-validate coverage run fmt clippy check docker-build docker-build-scratch docker-build-all docker-build-cross docker-build-multiarch docker-build-package docker-run docker-run-scratch compose-up compose-down hash-password clean security-scan test-all quick-start init completions manpage bench changelog install-act ensure-podman-socket ci-lint ci-test ci-docker-lint ci-e2e ci validate validate-docker validate-ci validate-msrv validate-coverage validate-security
 
 build:
 	cargo build --release
@@ -93,13 +93,13 @@ validate-security:
 	@cargo deny check
 
 docker-build:
-	podman build -t sks5:latest .
+	podman build -f Containerfile.alpine -t sks5:latest -t sks5:alpine .
 
-docker-build-alpine:
-	podman build -f Containerfile.alpine -t sks5:alpine .
+docker-build-scratch:
+	podman build -t sks5:scratch .
 
-docker-build-all: docker-build docker-build-alpine
-	@echo "Built sks5:latest (scratch) and sks5:alpine"
+docker-build-all: docker-build docker-build-scratch
+	@echo "Built sks5:latest (alpine, default) and sks5:scratch"
 
 docker-build-cross:
 	./scripts/build-multiarch-cross.sh
@@ -111,16 +111,16 @@ docker-build-package:
 	@echo "Building multi-arch image from pre-built binaries..."
 	@test -f binaries/amd64/sks5 || { echo "Error: binaries/amd64/sks5 not found. Run 'make build-static' first."; exit 1; }
 	@test -f binaries/arm64/sks5 || { echo "Error: binaries/arm64/sks5 not found. Cross-compile for aarch64 first."; exit 1; }
-	podman build -f Containerfile.package --target minimal -t sks5:latest .
-	podman build -f Containerfile.package --target alpine -t sks5:alpine .
+	podman build -f Containerfile.package --target alpine -t sks5:latest -t sks5:alpine .
+	podman build -f Containerfile.package --target minimal -t sks5:scratch .
 
 docker-run:
 	podman run --rm -p 2222:2222 -p 1080:1080 \
 		-v ./config.example.toml:/etc/sks5/config.toml:ro sks5:latest
 
-docker-run-alpine:
+docker-run-scratch:
 	podman run --rm -p 2222:2222 -p 1080:1080 \
-		-v ./config.example.toml:/etc/sks5/config.toml:ro sks5:alpine
+		-v ./config.example.toml:/etc/sks5/config.toml:ro sks5:scratch
 
 compose-up:
 	podman-compose up -d

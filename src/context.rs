@@ -7,9 +7,11 @@ use crate::proxy::ProxyEngine;
 use crate::quota::QuotaTracker;
 use crate::security::SecurityManager;
 use crate::webhooks::WebhookDispatcher;
+use dashmap::DashMap;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock;
+use tokio_util::sync::CancellationToken;
 
 /// Shared application context, replacing scattered Arc parameters
 pub struct AppContext {
@@ -23,4 +25,8 @@ pub struct AppContext {
     pub webhook_dispatcher: Option<Arc<WebhookDispatcher>>,
     pub alert_engine: Option<Arc<AlertEngine>>,
     pub start_time: Instant,
+    /// Per-user cancellation tokens for kick functionality.
+    /// Each authenticated SSH session registers its token here;
+    /// the kick API cancels all tokens for a given username.
+    pub kick_tokens: Arc<DashMap<String, Vec<CancellationToken>>>,
 }

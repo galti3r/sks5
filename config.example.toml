@@ -471,6 +471,18 @@ enabled = true
 # events = ["auth_success", "auth_failure", "connection_open", "connection_close", "ban"]
 # # HMAC secret for X-Signature-256 header verification. Default: absent (no signature)
 # secret = "hmac-secret-for-signature"
+# # Payload format: "generic" (default), "slack", "discord", or "custom".
+# # - generic: raw JSON {event_type, timestamp, data}
+# # - slack: Slack Block Kit format with emoji per event type
+# # - discord: Discord embed with color-coded severity
+# # - custom: template string with placeholder substitution
+# # Default: "generic"
+# format = "generic"
+# # Custom template for format = "custom". Placeholders:
+# #   {event_type}, {timestamp}, {username}, {source_ip},
+# #   {target_host}, {data_json}, {summary}
+# # Ignored unless format = "custom". Default: absent
+# # template = '{"text": "[sks5] {event_type}: {summary}"}'
 # # Allow delivery to private/internal IPs (RFC1918, loopback).
 # # Set true for local/internal webhook receivers. Default: false
 # allow_private_ips = false
@@ -480,6 +492,23 @@ enabled = true
 # retry_delay_ms = 1000
 # # Maximum retry delay in ms (cap for exponential backoff). Default: 30000
 # max_retry_delay_ms = 30000
+
+# --- Slack example ---
+# [[webhooks]]
+# url = "https://hooks.slack.com/services/T.../B.../xxx"
+# format = "slack"
+# events = ["auth_failure", "ban"]
+
+# --- Discord example ---
+# [[webhooks]]
+# url = "https://discord.com/api/webhooks/1234/abcd"
+# format = "discord"
+
+# --- Custom template example ---
+# [[webhooks]]
+# url = "https://my-monitoring.example.com/events"
+# format = "custom"
+# template = '{"text": "[sks5] {event_type}: {summary}", "source": "sks5"}'
 
 
 # =============================================================================

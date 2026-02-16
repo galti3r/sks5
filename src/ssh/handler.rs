@@ -14,6 +14,7 @@ use std::time::Instant;
 use dashmap::DashMap;
 use russh::CryptoVec;
 use tokio::sync::Mutex;
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, info_span, warn, Instrument};
 
 /// Maximum number of shell channels per SSH connection to prevent resource exhaustion.
@@ -28,6 +29,8 @@ pub struct SshHandler {
     shells: DashMap<russh::ChannelId, Arc<Mutex<ShellSession>>>,
     total_auth_attempts: u32,
     connected_at: Instant,
+    /// Cancellation token for admin kick — shared with the kick registry.
+    kick_token: CancellationToken,
 }
 
 impl SshHandler {
@@ -41,6 +44,29 @@ impl SshHandler {
             shells: DashMap::new(),
             total_auth_attempts: 0,
             connected_at: Instant::now(),
+            kick_token: CancellationToken::new(),
+        }
+    }
+
+    /// Register this handler's kick token in the kick registry after auth success.
+    fn register_kick_token(&self, username: &str) {
+        self.ctx
+            .kick_tokens
+            .entry(username.to_string())
+            .or_default()
+            .push(self.kick_token.clone());
+    }
+
+    /// Clean up cancelled kick tokens for a user from the registry.
+    fn cleanup_kick_tokens(&self) {
+        if let Some(username) = &self.session_state.username {
+            if let Some(mut tokens) = self.ctx.kick_tokens.get_mut(username) {
+                tokens.retain(|t| !t.is_cancelled());
+            }
+            // Remove the entry entirely if no tokens remain
+            self.ctx
+                .kick_tokens
+                .remove_if(username, |_, tokens| tokens.is_empty());
         }
     }
 
@@ -597,6 +623,9 @@ impl russh::server::Handler for SshHandler {
         };
 
         if auth_result {
+            if self.ctx.config.logging.connection_flow_logs {
+                debug!(conn_id = %self.conn_id, user = %user, ip = %self.peer_addr, "flow: password auth completed successfully");
+            }
             info!(conn_id = %self.conn_id, user = %user, ip = %self.peer_addr, "Password auth success");
             self.session_state.username = Some(user.to_string());
             self.session_state.authenticated = true;
@@ -605,6 +634,7 @@ impl russh::server::Handler for SshHandler {
             } else {
                 "password".to_string()
             };
+            self.register_kick_token(user);
             self.ctx
                 .audit
                 .log_auth_success_cid(user, &self.peer_addr, "password", &self.conn_id)
@@ -676,6 +706,7 @@ impl russh::server::Handler for SshHandler {
             self.session_state.username = Some(user.to_string());
             self.session_state.authenticated = true;
             self.session_state.auth_method = "publickey".to_string();
+            self.register_kick_token(user);
             // Compute SSH key fingerprint (SHA256 of base64-decoded public key bytes)
             let fingerprint = {
                 use base64::Engine;
@@ -781,6 +812,9 @@ impl russh::server::Handler for SshHandler {
             originator = %format!("{}:{}", originator_address, originator_port),
             "direct-tcpip channel open"
         );
+        if self.ctx.config.logging.connection_flow_logs {
+            debug!(conn_id = %self.conn_id, user = %username, target = %format!("{}:{}", host, port), "flow: forwarding request validated, spawning relay");
+        }
 
         let proxy = self.ctx.proxy_engine.clone();
         let audit = self.ctx.audit.clone();
@@ -796,6 +830,7 @@ impl russh::server::Handler for SshHandler {
             crate::proxy::ProxyEngine::resolve_upstream_proxy(&user, &self.ctx.config);
 
         let conn_id = self.conn_id.clone();
+        let kick_token = self.kick_token.clone();
         let relay_span = info_span!("ssh-relay", conn_id = %conn_id, user = %username, target = %format!("{}:{}", host, port));
         tokio::spawn(
             async move {
@@ -814,52 +849,64 @@ impl russh::server::Handler for SshHandler {
                     quotas: user_quotas,
                     upstream_proxy,
                 };
-                match proxy.connect_and_relay(relay_req).await {
-                    Ok((bytes_up, bytes_down, resolved_addr)) => {
-                        // Record successful connection in cumulative counters
-                        quota_tracker.record_connection_success(&username);
-                        let duration_ms = start.elapsed().as_millis() as u64;
+                tokio::select! {
+                    result = proxy.connect_and_relay(relay_req) => {
+                        match result {
+                            Ok((bytes_up, bytes_down, resolved_addr)) => {
+                                // Record successful connection in cumulative counters
+                                quota_tracker.record_connection_success(&username);
+                                let duration_ms = start.elapsed().as_millis() as u64;
+                                info!(
+                                    conn_id = %conn_id,
+                                    user = %username,
+                                    target = %format!("{}:{}", host, port),
+                                    resolved_ip = %resolved_addr.ip(),
+                                    bytes_up = bytes_up,
+                                    bytes_down = bytes_down,
+                                    duration_ms = duration_ms,
+                                    "Forwarding completed"
+                                );
+                                audit
+                                    .log_proxy_complete_cid(
+                                        &username,
+                                        &host,
+                                        port,
+                                        bytes_up,
+                                        bytes_down,
+                                        duration_ms,
+                                        &peer,
+                                        Some(resolved_addr.ip().to_string()),
+                                        &conn_id,
+                                    )
+                                    .await;
+                                metrics.record_bytes_transferred(&username, bytes_up + bytes_down);
+                                metrics.record_typed_connection_duration(
+                                    &username,
+                                    "ssh",
+                                    duration_ms as f64 / 1000.0,
+                                );
+                            }
+                            Err(e) => {
+                                let error_type = classify_relay_error(&e);
+                                warn!(
+                                    conn_id = %conn_id,
+                                    user = %username,
+                                    target = %format!("{}:{}", host, port),
+                                    error = %e,
+                                    error_type = %error_type,
+                                    "Forwarding failed"
+                                );
+                                metrics.record_error(error_type);
+                            }
+                        }
+                    }
+                    _ = kick_token.cancelled() => {
                         info!(
                             conn_id = %conn_id,
                             user = %username,
                             target = %format!("{}:{}", host, port),
-                            resolved_ip = %resolved_addr.ip(),
-                            bytes_up = bytes_up,
-                            bytes_down = bytes_down,
-                            duration_ms = duration_ms,
-                            "Forwarding completed"
+                            "Relay terminated: user kicked by administrator"
                         );
-                        audit
-                            .log_proxy_complete_cid(
-                                &username,
-                                &host,
-                                port,
-                                bytes_up,
-                                bytes_down,
-                                duration_ms,
-                                &peer,
-                                Some(resolved_addr.ip().to_string()),
-                                &conn_id,
-                            )
-                            .await;
-                        metrics.record_bytes_transferred(&username, bytes_up + bytes_down);
-                        metrics.record_typed_connection_duration(
-                            &username,
-                            "ssh",
-                            duration_ms as f64 / 1000.0,
-                        );
-                    }
-                    Err(e) => {
-                        let error_type = classify_relay_error(&e);
-                        warn!(
-                            conn_id = %conn_id,
-                            user = %username,
-                            target = %format!("{}:{}", host, port),
-                            error = %e,
-                            error_type = %error_type,
-                            "Forwarding failed"
-                        );
-                        metrics.record_error(error_type);
                     }
                 }
             }
@@ -877,6 +924,17 @@ impl russh::server::Handler for SshHandler {
     ) -> Result<(), Self::Error> {
         // H-2: Defense-in-depth - verify authentication
         if !self.session_state.authenticated {
+            return Ok(());
+        }
+
+        // Check if user has been kicked by administrator
+        if self.kick_token.is_cancelled() {
+            let _ = session.data(
+                channel,
+                CryptoVec::from_slice(b"\r\nKicked by administrator.\r\n"),
+            );
+            let _ = session.close(channel);
+            self.cleanup_kick_tokens();
             return Ok(());
         }
 

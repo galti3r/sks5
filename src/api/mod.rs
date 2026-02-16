@@ -36,6 +36,7 @@ use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 /// Used HMAC tickets for replay protection (ticket_hash -> expiry timestamp).
@@ -137,6 +138,7 @@ pub struct AppState {
     pub ssh_listen_addr: Option<String>,
     pub quota_tracker: Option<Arc<QuotaTracker>>,
     pub webhook_dispatcher: Option<Arc<WebhookDispatcher>>,
+    pub kick_tokens: Option<Arc<DashMap<String, Vec<CancellationToken>>>>,
 }
 
 /// Start the metrics/health HTTP server with graceful shutdown support.

@@ -87,9 +87,20 @@ async fn handle_command(text: &str, state: &AppState) -> WsResponse {
             if let Some(username) = &cmd.username {
                 let auth = state.auth_service.read().await;
                 if auth.user_store().get(username).is_some() {
-                    if let Some(ref tx) = state.broadcast_tx {
-                        let _ = tx.send(("__kick__".to_string(), vec![username.clone()]));
-                    }
+                    let sessions_cancelled = if let Some(ref kick_tokens) = state.kick_tokens {
+                        if let Some(tokens) = kick_tokens.get(username) {
+                            let count = tokens.value().len();
+                            for token in tokens.value() {
+                                token.cancel();
+                            }
+                            count
+                        } else {
+                            0
+                        }
+                    } else {
+                        0
+                    };
+                    debug!(user = %username, sessions = sessions_cancelled, "User kicked via WS");
                     WsResponse {
                         success: true,
                         action: "kick".to_string(),

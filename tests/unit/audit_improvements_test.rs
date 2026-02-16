@@ -51,6 +51,8 @@ async fn webhook_client_does_not_follow_redirects() {
         retry_delay_ms: 0,
         allow_private_ips: true,
         max_retry_delay_ms: 0,
+        format: Default::default(),
+        template: None,
     };
 
     let dispatcher = sks5::webhooks::WebhookDispatcher::new(vec![config]);

@@ -11,11 +11,11 @@
 #   sks5 health-check --addr HOST:PORT --timeout SECS — TCP connect probe (for HEALTHCHECK in Containerfile).
 
 services:
-  # Mode 1: Config file (default) — scratch-based image
+  # Mode 1: Config file (default) — alpine-based image
   sks5:
     build:
       context: .
-      dockerfile: Containerfile
+      dockerfile: Containerfile.alpine
     ports:
       - "2222:2222"
       - "1080:1080"
@@ -38,7 +38,7 @@ services:
     profiles: ["env"]
     build:
       context: .
-      dockerfile: Containerfile
+      dockerfile: Containerfile.alpine
     ports:
       - "2222:2222"
       - "1080:1080"
@@ -113,7 +113,7 @@ services:
     profiles: ["tls"]
     build:
       context: .
-      dockerfile: Containerfile
+      dockerfile: Containerfile.alpine
     ports:
       - "2222:2222"
       - "1080:1080"

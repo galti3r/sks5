@@ -62,6 +62,7 @@ async fn start_api_with_quota(config: sks5::config::types::AppConfig) -> (u16, A
         ssh_listen_addr: None,
         quota_tracker: Some(quota_tracker.clone()),
         webhook_dispatcher: None,
+        kick_tokens: None,
     };
 
     let _task = tokio::spawn(async move {

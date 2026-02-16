@@ -49,6 +49,8 @@ impl WebhookDispatcher {
             let url = config.url.clone();
             let secret = config.secret.clone();
             let payload = payload.clone();
+            let format = config.format;
+            let template = config.template.clone();
             let max_retries = config.max_retries;
             let retry_delay_ms = config.retry_delay_ms;
             let max_retry_delay_ms = config.max_retry_delay_ms;
@@ -97,7 +99,16 @@ impl WebhookDispatcher {
                 // Retry loop with exponential backoff
                 let mut attempt = 0u32;
                 loop {
-                    match send_webhook(&pinned_client, &url, &secret, &payload).await {
+                    match send_webhook(
+                        &pinned_client,
+                        &url,
+                        &secret,
+                        &payload,
+                        format,
+                        template.as_deref(),
+                    )
+                    .await
+                    {
                         Ok(()) => {
                             debug!(url = %url, event = %payload.event_type, attempt = attempt, "Webhook delivered");
                             return;
@@ -177,8 +188,10 @@ async fn send_webhook(
     url: &str,
     secret: &Option<String>,
     payload: &WebhookPayload,
+    format: crate::config::types::WebhookFormat,
+    template: Option<&str>,
 ) -> anyhow::Result<()> {
-    let body = serde_json::to_string(payload)?;
+    let body = payload.to_formatted_body(format, template);
 
     let mut request = client.post(url).header("Content-Type", "application/json");
 

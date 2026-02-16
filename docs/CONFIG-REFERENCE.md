@@ -512,8 +512,10 @@ HTTP webhooks triggered by server events. Repeatable section (define multiple we
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `url` | string | _(required)_ | Webhook delivery URL. Must be a valid HTTP/HTTPS URL. |
-| `events` | string[] | `[]` | Event types to subscribe to. Empty = all events. Valid values: `"auth_success"`, `"auth_failure"`, `"connection_open"`, `"connection_close"`, `"ban"`. |
-| `secret` | string? | `null` | HMAC-SHA256 secret for `X-Signature-256` header verification. When absent, no signature is included. |
+| `events` | string[] | `[]` | Event types to subscribe to. Empty = all events. Valid values: `"auth_success"`, `"auth_failure"`, `"connection_open"`, `"connection_close"`, `"proxy_complete"`, `"ban"`, `"unban"`, `"config_reload"`, `"maintenance_start"`, `"maintenance_end"`, `"rate_limited"`, `"quota_exceeded"`, `"alert_triggered"`. |
+| `format` | string | `"generic"` | Payload format. Values: `"generic"` (raw JSON), `"slack"` (Block Kit), `"discord"` (embed), `"custom"` (template). |
+| `template` | string? | `null` | Custom template string. **Required when `format = "custom"`**. Placeholders: `{event_type}`, `{timestamp}`, `{username}`, `{source_ip}`, `{target_host}`, `{data_json}`, `{summary}`. Values are JSON-escaped. |
+| `secret` | string? | `null` | HMAC-SHA256 secret for `X-Signature-256` header verification. When absent, no signature is included. HMAC is computed on the final formatted body. |
 | `allow_private_ips` | bool | `false` | Allow delivery to private/internal IPs (RFC 1918, loopback). Set `true` for local webhook receivers. |
 | `max_retries` | u32 | `3` | Maximum retry attempts on delivery failure. `0` = no retries. |
 | `retry_delay_ms` | u64 | `1000` | Initial retry delay in milliseconds. Doubled each attempt (exponential backoff). |

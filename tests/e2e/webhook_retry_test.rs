@@ -111,6 +111,8 @@ async fn webhook_retry_succeeds_after_failures() {
         max_retries: 3,
         retry_delay_ms: 50,
         max_retry_delay_ms: 500,
+        format: Default::default(),
+        template: None,
     }];
 
     let dispatcher = WebhookDispatcher::new(config);
@@ -144,6 +146,8 @@ async fn webhook_gives_up_after_max_retries() {
         max_retries: 2,
         retry_delay_ms: 50,
         max_retry_delay_ms: 500,
+        format: Default::default(),
+        template: None,
     }];
 
     let dispatcher = WebhookDispatcher::new(config);
@@ -176,6 +180,8 @@ async fn webhook_no_retry_when_max_zero() {
         max_retries: 0,
         retry_delay_ms: 50,
         max_retry_delay_ms: 500,
+        format: Default::default(),
+        template: None,
     }];
 
     let dispatcher = WebhookDispatcher::new(config);
@@ -209,6 +215,8 @@ async fn webhook_backoff_timing() {
         max_retries: 2,
         retry_delay_ms: 100,
         max_retry_delay_ms: 5000,
+        format: Default::default(),
+        template: None,
     }];
 
     let dispatcher = WebhookDispatcher::new(config);
@@ -271,6 +279,8 @@ async fn webhook_blocks_private_ip_url() {
         max_retries: 0,
         retry_delay_ms: 50,
         max_retry_delay_ms: 500,
+        format: Default::default(),
+        template: None,
     }];
 
     let dispatcher = WebhookDispatcher::new(config);
@@ -304,6 +314,8 @@ async fn webhook_allows_private_ip_when_configured() {
         max_retries: 0,
         retry_delay_ms: 50,
         max_retry_delay_ms: 500,
+        format: Default::default(),
+        template: None,
     }];
 
     let dispatcher = WebhookDispatcher::new(config);
@@ -338,6 +350,8 @@ async fn webhook_blocks_loopback_hostname() {
         max_retries: 0,
         retry_delay_ms: 50,
         max_retry_delay_ms: 500,
+        format: Default::default(),
+        template: None,
     }];
 
     let dispatcher = WebhookDispatcher::new(config);

@@ -537,6 +537,26 @@ pub(crate) fn prompt_webhooks_section(config: &mut AppConfig) -> Result<()> {
                 .default(String::new())
                 .allow_empty(true)
                 .interact_text()?;
+            let format_options = &["generic", "slack", "discord", "custom"];
+            let format_sel = Select::new()
+                .with_prompt("Payload format")
+                .items(format_options)
+                .default(0)
+                .interact()?;
+            let format = match format_sel {
+                1 => crate::config::types::WebhookFormat::Slack,
+                2 => crate::config::types::WebhookFormat::Discord,
+                3 => crate::config::types::WebhookFormat::Custom,
+                _ => crate::config::types::WebhookFormat::Generic,
+            };
+            let template = if format == crate::config::types::WebhookFormat::Custom {
+                let t: String = Input::new()
+                    .with_prompt("Custom template (use {event_type}, {username}, {summary}, etc.)")
+                    .interact_text()?;
+                Some(t)
+            } else {
+                None
+            };
             config.webhooks.push(WebhookConfig {
                 url,
                 events,
@@ -545,6 +565,8 @@ pub(crate) fn prompt_webhooks_section(config: &mut AppConfig) -> Result<()> {
                 } else {
                     Some(secret)
                 },
+                format,
+                template,
                 allow_private_ips: false,
                 max_retries: 3,
                 retry_delay_ms: 1000,

@@ -65,6 +65,8 @@ fn webhook_config_debug_redacts_secret() {
         max_retries: 3,
         retry_delay_ms: 1000,
         max_retry_delay_ms: 30000,
+        format: Default::default(),
+        template: None,
     };
 
     let debug = format!("{:?}", config);
@@ -89,6 +91,8 @@ fn webhook_config_debug_no_secret() {
         max_retries: 3,
         retry_delay_ms: 1000,
         max_retry_delay_ms: 30000,
+        format: Default::default(),
+        template: None,
     };
 
     let debug = format!("{:?}", config);
@@ -169,6 +173,8 @@ async fn dispatcher_event_filter_skips_nonmatching() {
         max_retries: 0,
         retry_delay_ms: 1000,
         max_retry_delay_ms: 30000,
+        format: Default::default(),
+        template: None,
     };
 
     let dispatcher = sks5::webhooks::WebhookDispatcher::new(vec![config]);
@@ -222,6 +228,8 @@ async fn dispatcher_delivers_to_local_server() {
         max_retries: 0,
         retry_delay_ms: 1000,
         max_retry_delay_ms: 30000,
+        format: Default::default(),
+        template: None,
     };
 
     let dispatcher = sks5::webhooks::WebhookDispatcher::new(vec![config]);

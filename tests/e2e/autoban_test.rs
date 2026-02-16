@@ -71,6 +71,7 @@ async fn start_socks5(config: AppConfig) -> TestServer {
         webhook_dispatcher: None,
         alert_engine: None,
         start_time: std::time::Instant::now(),
+        kick_tokens: std::sync::Arc::new(dashmap::DashMap::new()),
     });
 
     let task = tokio::spawn(async move {

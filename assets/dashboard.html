@@ -459,7 +459,7 @@ async function kick(username) {
     if (wsSend({action: 'kick', username: username})) {
       document.getElementById('actionMsg').textContent = 'Kick request sent via WS for '+username;
     } else {
-      await fetch(BASE+'/api/connections/'+username, {method:'DELETE', headers});
+      await fetch(BASE+'/api/kick/'+encodeURIComponent(username), {method:'POST', headers});
       document.getElementById('actionMsg').textContent = 'Kicked '+username;
     }
   } catch(e) { document.getElementById('actionMsg').textContent = 'Error: '+e.message; }
@@ -497,7 +497,7 @@ function renderUserDetail(u) {
   html += '<dt>Role</dt><dd>'+esc(u.role)+'</dd>';
   html += '<dt>Group</dt><dd>'+(u.group ? esc(u.group) : '<span style="color:var(--dim)">none</span>')+'</dd>';
   html += '<dt>Shell</dt><dd>'+(u.allow_shell ? '<span class="badge on">Yes</span>' : '<span class="badge off">No</span>')+'</dd>';
-  html += '<dt>Colors</dt><dd>'+(u.colors ? 'Yes' : 'No')+'</dd>';
+  html += '<dt>Colors</dt><dd>'+(u.colors ? '<span class="badge on">Yes</span>' : '<span class="badge off">No</span>')+'</dd>';
   html += '<dt>Expires</dt><dd>'+(u.expires_at ? esc(u.expires_at) : '<span style="color:var(--dim)">never</span>')+'</dd>';
   html += '</dl></div>';
 
