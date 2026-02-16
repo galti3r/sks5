@@ -144,6 +144,21 @@ jobs:
           dockerfile: Containerfile.package
 
   # ===========================================================================
+  # Docker Build: verify Containerfile builds (no push)
+  # Runs on: main/PR (if changed), all tags (always)
+  # ===========================================================================
+  docker-build:
+    name: Docker Build
+    needs: changes
+    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.docker == 'true' || needs.changes.outputs.ci == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build image (Containerfile)
+        run: docker build -f Containerfile -t sks5:ci-test .
+
+  # ===========================================================================
   # Test: unit + integration
   # Runs on: main/PR (if changed), all tags (always)
   # ===========================================================================
