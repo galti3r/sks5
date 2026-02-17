@@ -240,7 +240,6 @@ const TOKEN: &str = "browser-test-token";
 // Test 1: Dashboard page loads with expected structure
 // ---------------------------------------------------------------------------
 #[tokio::test]
-#[ignore]
 async fn test_dashboard_page_loads() {
     if !podman_available() {
         eprintln!("SKIPPED: podman not available");
@@ -281,7 +280,6 @@ async fn test_dashboard_page_loads() {
 // Test 2: Theme toggle switches between dark and light
 // ---------------------------------------------------------------------------
 #[tokio::test]
-#[ignore]
 async fn test_dashboard_theme_toggle() {
     if !podman_available() {
         eprintln!("SKIPPED: podman not available");
@@ -337,7 +335,6 @@ async fn test_dashboard_theme_toggle() {
 // Test 3: WebSocket connects and shows Connected status
 // ---------------------------------------------------------------------------
 #[tokio::test]
-#[ignore]
 async fn test_dashboard_websocket_connects() {
     if !podman_available() {
         eprintln!("SKIPPED: podman not available");
@@ -381,7 +378,6 @@ async fn test_dashboard_websocket_connects() {
 // Test 4: Live data updates arrive via WebSocket
 // ---------------------------------------------------------------------------
 #[tokio::test]
-#[ignore]
 async fn test_dashboard_live_data_updates() {
     if !podman_available() {
         eprintln!("SKIPPED: podman not available");
@@ -424,7 +420,6 @@ async fn test_dashboard_live_data_updates() {
 // Test 5: User table is populated with configured user
 // ---------------------------------------------------------------------------
 #[tokio::test]
-#[ignore]
 async fn test_dashboard_user_table_populated() {
     if !podman_available() {
         eprintln!("SKIPPED: podman not available");
@@ -463,7 +458,6 @@ async fn test_dashboard_user_table_populated() {
 // Test 6: Maintenance toggle via WS command
 // ---------------------------------------------------------------------------
 #[tokio::test]
-#[ignore]
 async fn test_dashboard_maintenance_toggle() {
     if !podman_available() {
         eprintln!("SKIPPED: podman not available");
@@ -518,7 +512,6 @@ async fn test_dashboard_maintenance_toggle() {
 // Test 7: Disconnecting WebSocket shows offline status
 // ---------------------------------------------------------------------------
 #[tokio::test]
-#[ignore]
 async fn test_dashboard_disconnect_shows_offline() {
     if !podman_available() {
         eprintln!("SKIPPED: podman not available");
@@ -566,7 +559,6 @@ async fn test_dashboard_disconnect_shows_offline() {
 // Test 8: Stat cards have correct structure (4 cards with expected headings)
 // ---------------------------------------------------------------------------
 #[tokio::test]
-#[ignore]
 async fn test_dashboard_stat_cards_structure() {
     if !podman_available() {
         eprintln!("SKIPPED: podman not available");
@@ -611,7 +603,6 @@ async fn test_dashboard_stat_cards_structure() {
 // Test 9: Controls panel has expected elements
 // ---------------------------------------------------------------------------
 #[tokio::test]
-#[ignore]
 async fn test_dashboard_controls_panel_exists() {
     if !podman_available() {
         eprintln!("SKIPPED: podman not available");
@@ -661,7 +652,6 @@ async fn test_dashboard_controls_panel_exists() {
 // Test 10: User detail modal opens on username click
 // ---------------------------------------------------------------------------
 #[tokio::test]
-#[ignore]
 async fn test_dashboard_user_detail_modal() {
     if !podman_available() {
         eprintln!("SKIPPED: podman not available");

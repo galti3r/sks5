@@ -11,28 +11,30 @@ use executor::CommandExecutor;
 use russh::CryptoVec;
 use terminal::TerminalState;
 
-/// A shell session attached to an SSH channel
+/// A shell session attached to an SSH channel.
+///
+/// The `Channel<server::Msg>` received in `channel_open_session` is
+/// intentionally NOT stored here. russh delivers every incoming message to
+/// the Channel's internal bounded mpsc (`channel_buffer_size`, default 100)
+/// **before** calling the Handler callback, and that send is awaited.  If
+/// the receiver is never drained the buffer fills up and the entire SSH
+/// session event loop deadlocks.  Dropping the Channel drops its `Receiver`,
+/// making `chan.send()` return `Err` immediately (caught by `.unwrap_or(())`).
+/// The SSH channel stays open — `Channel` has no `Drop` impl; only
+/// `ChannelCloseOnDrop` (used by `into_stream()`) sends `SSH_MSG_CHANNEL_CLOSE`.
 pub struct ShellSession {
     terminal: TerminalState,
     executor: CommandExecutor,
-    /// Kept alive by RAII — the channel is held open as long as this
-    /// ShellSession exists. Dropping it would close the SSH channel.
-    _channel: russh::Channel<russh::server::Msg>,
     closed: bool,
     /// Pre-rendered MOTD to send on shell_request
     motd: Option<String>,
 }
 
 impl ShellSession {
-    pub fn new(
-        username: String,
-        hostname: String,
-        channel: russh::Channel<russh::server::Msg>,
-    ) -> Self {
+    pub fn new(username: String, hostname: String) -> Self {
         Self {
             terminal: TerminalState::new(),
             executor: CommandExecutor::new(username, hostname),
-            _channel: channel,
             closed: false,
             motd: None,
         }

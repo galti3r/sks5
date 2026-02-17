@@ -3,7 +3,7 @@ SHELL := /bin/bash
 # Detect host architecture for musl target
 MUSL_TARGET := $(shell uname -m | sed 's/x86_64/x86_64-unknown-linux-musl/' | sed 's/aarch64/aarch64-unknown-linux-musl/')
 
-.PHONY: build build-debug build-static test test-unit test-e2e test-e2e-all test-e2e-browser test-screenshots test-perf test-e2e-podman test-compose test-compose-validate coverage run fmt clippy check docker-build docker-build-scratch docker-build-all docker-build-cross docker-build-multiarch docker-build-package docker-scan docker-build-scan docker-run docker-run-scratch compose-up compose-down hash-password clean security-scan test-all quick-start init completions manpage bench changelog install-act ensure-podman-socket ci-lint ci-test ci-docker-lint ci-e2e ci validate validate-docker validate-ci validate-msrv validate-coverage validate-security
+.PHONY: build build-debug build-static test test-unit test-e2e test-e2e-all test-e2e-browser test-screenshots test-perf test-e2e-podman test-compose test-compose-validate coverage run fmt clippy check docker-build docker-build-scratch docker-build-all docker-build-cross docker-build-multiarch docker-build-package docker-scan docker-build-scan docker-run docker-run-scratch compose-up compose-down hash-password clean security-scan test-all quick-start init completions manpage bench changelog install-act ensure-podman-socket ci-lint ci-test ci-docker-lint ci-e2e ci validate validate-docker validate-ci validate-msrv validate-coverage validate-security setup
 
 build:
 	cargo build --release
@@ -26,14 +26,14 @@ test-e2e:
 	cargo test --test '*'
 
 test-e2e-all:
-	cargo test --test '*' -- --include-ignored
+	cargo test --test '*'
 
 test-e2e-browser:
 	@command -v podman >/dev/null 2>&1 || { echo "Error: podman is required for browser E2E tests"; exit 1; }
 	@podman image exists docker.io/chromedp/headless-shell:latest 2>/dev/null || \
 		{ echo "Pulling chromedp/headless-shell..."; podman pull docker.io/chromedp/headless-shell:latest; }
 	@status=0; \
-	cargo test --test e2e_browser_dashboard -- --ignored --nocapture || status=$$?; \
+	cargo test --test e2e_browser_dashboard -- --nocapture || status=$$?; \
 	podman ps -aq --filter "name=sks5-chrome" | xargs -r podman stop 2>/dev/null || true; \
 	exit $$status
 
@@ -43,12 +43,12 @@ test-screenshots:
 		{ echo "Pulling chromedp/headless-shell..."; podman pull docker.io/chromedp/headless-shell:latest; }
 	@mkdir -p screenshots
 	@status=0; \
-	SCREENSHOT_DIR=screenshots cargo test --test e2e_browser_screenshots -- --ignored --nocapture || status=$$?; \
+	SCREENSHOT_DIR=screenshots cargo test --test e2e_browser_screenshots -- --nocapture || status=$$?; \
 	podman ps -aq --filter "name=sks5-chrome" | xargs -r podman stop 2>/dev/null || true; \
 	exit $$status
 
 test-perf:
-	cargo test --test e2e_performance -- --ignored --nocapture
+	cargo test --test e2e_performance -- --nocapture
 
 test-e2e-podman:
 	./scripts/test-e2e-podman.sh
@@ -171,6 +171,62 @@ clean:
 # ===========================================================================
 # Local CI with act + Podman
 # ===========================================================================
+
+setup:
+	@echo "Installing all development tools..."
+	@mkdir -p ~/.local/bin
+	@# act (local CI runner)
+	@command -v act >/dev/null 2>&1 && echo "  ok act" || \
+		{ echo "  .. act"; curl -fsSL https://raw.githubusercontent.com/nektos/act/master/install.sh | bash -s -- -b ~/.local/bin 2>/dev/null && echo "  ok act (installed)" || echo "  !! act (failed)"; }
+	@# cargo tools
+	@command -v cargo-audit >/dev/null 2>&1 && echo "  ok cargo-audit" || \
+		{ echo "  .. cargo-audit"; cargo install cargo-audit --locked 2>/dev/null && echo "  ok cargo-audit (installed)" || echo "  !! cargo-audit (failed)"; }
+	@command -v cargo-deny >/dev/null 2>&1 && echo "  ok cargo-deny" || \
+		{ echo "  .. cargo-deny"; cargo install cargo-deny --locked 2>/dev/null && echo "  ok cargo-deny (installed)" || echo "  !! cargo-deny (failed)"; }
+	@command -v cargo-llvm-cov >/dev/null 2>&1 && echo "  ok cargo-llvm-cov" || \
+		{ echo "  .. cargo-llvm-cov"; rustup component add llvm-tools-preview 2>/dev/null; cargo install cargo-llvm-cov --locked 2>/dev/null && echo "  ok cargo-llvm-cov (installed)" || echo "  !! cargo-llvm-cov (failed)"; }
+	@# MSRV toolchain
+	@rustup toolchain list 2>/dev/null | grep -q '^1\.88' && echo "  ok MSRV 1.88" || \
+		{ echo "  .. MSRV 1.88"; rustup toolchain install 1.88 2>/dev/null && echo "  ok MSRV 1.88 (installed)" || echo "  !! MSRV 1.88 (failed)"; }
+	@# trivy: binary install → podman wrapper → docker wrapper
+	@command -v trivy >/dev/null 2>&1 && echo "  ok trivy (native)" || \
+		{ echo "  .. trivy"; \
+		  curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh 2>/dev/null | sh -s -- -b ~/.local/bin 2>/dev/null \
+		  && echo "  ok trivy (installed)" \
+		  || { if command -v podman >/dev/null 2>&1; then \
+		         echo "  .. trivy binary failed, creating podman wrapper"; \
+		         printf '#!/bin/sh\nexec podman run --rm -v "$${XDG_RUNTIME_DIR}/podman/podman.sock:/var/run/docker.sock:ro" ghcr.io/aquasecurity/trivy:latest "$$@"\n' > ~/.local/bin/trivy \
+		         && chmod +x ~/.local/bin/trivy \
+		         && echo "  ok trivy (podman wrapper)"; \
+		       elif command -v docker >/dev/null 2>&1; then \
+		         echo "  .. trivy binary failed, creating docker wrapper"; \
+		         printf '#!/bin/sh\nexec docker run --rm -v /var/run/docker.sock:/var/run/docker.sock:ro ghcr.io/aquasecurity/trivy:latest "$$@"\n' > ~/.local/bin/trivy \
+		         && chmod +x ~/.local/bin/trivy \
+		         && echo "  ok trivy (docker wrapper)"; \
+		       else \
+		         echo "  !! trivy (no binary, no podman, no docker)"; \
+		       fi; }; }
+	@# vhs: go install → podman wrapper → docker wrapper
+	@command -v vhs >/dev/null 2>&1 && echo "  ok vhs (native)" || \
+		{ echo "  .. vhs"; \
+		  if command -v go >/dev/null 2>&1; then \
+		    go install github.com/charmbracelet/vhs@latest 2>/dev/null && echo "  ok vhs (installed)" && exit 0; \
+		  fi; \
+		  if command -v podman >/dev/null 2>&1; then \
+		    echo "  .. creating podman wrapper"; \
+		    printf '#!/bin/sh\nexec podman run --rm -v "$$PWD:/vhs" ghcr.io/charmbracelet/vhs "$$@"\n' > ~/.local/bin/vhs \
+		    && chmod +x ~/.local/bin/vhs \
+		    && echo "  ok vhs (podman wrapper)"; \
+		  elif command -v docker >/dev/null 2>&1; then \
+		    echo "  .. creating docker wrapper"; \
+		    printf '#!/bin/sh\nexec docker run --rm -v "$$PWD:/vhs" ghcr.io/charmbracelet/vhs "$$@"\n' > ~/.local/bin/vhs \
+		    && chmod +x ~/.local/bin/vhs \
+		    && echo "  ok vhs (docker wrapper)"; \
+		  else \
+		    echo "  !! vhs (no binary, no podman, no docker)"; \
+		  fi; }
+	@echo ""
+	@echo "Done. Re-run 'make validate-docker' to verify."
 
 install-act:
 	@echo "Installing act to ~/.local/bin..."

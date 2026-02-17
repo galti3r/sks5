@@ -356,3 +356,113 @@ async fn test_shell_echo() {
         output
     );
 }
+
+// ---------------------------------------------------------------------------
+// Regression: backpressure deadlock (russh Channel mpsc)
+// ---------------------------------------------------------------------------
+
+/// Regression test: SSH shell must survive >100 commands without freezing.
+///
+/// Before the fix, russh's internal bounded mpsc (channel_buffer_size=100)
+/// fills up because the server-side `Channel` receiver is never drained,
+/// blocking the entire SSH session event loop.
+#[tokio::test]
+async fn test_shell_survives_many_commands() {
+    const NUM_COMMANDS: usize = 120;
+    const CMD_TIMEOUT: Duration = Duration::from_secs(5);
+
+    let port = free_port().await;
+    let hash = hash_pass("pass");
+    let _server = start_ssh(ssh_config(port, &hash)).await;
+
+    // Connect and authenticate
+    let client_config = Arc::new(russh::client::Config::default());
+    let mut handle = russh::client::connect(
+        client_config,
+        format!("127.0.0.1:{}", port),
+        TestClientHandler,
+    )
+    .await
+    .expect("SSH connect failed");
+
+    let ok = handle
+        .authenticate_password("testuser", "pass")
+        .await
+        .expect("auth call failed");
+    assert!(ok.success(), "auth should succeed");
+
+    // Open shell channel
+    let channel = handle.channel_open_session().await.expect("channel open");
+    channel
+        .request_shell(true)
+        .await
+        .expect("shell request failed");
+
+    let mut stream = channel.into_stream();
+    let mut buf = vec![0u8; 8192];
+
+    // Drain MOTD + initial prompt
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    let mut initial = String::new();
+    loop {
+        match tokio::time::timeout_at(
+            deadline,
+            tokio::io::AsyncReadExt::read(&mut stream, &mut buf),
+        )
+        .await
+        {
+            Ok(Ok(n)) if n > 0 => {
+                initial.push_str(&String::from_utf8_lossy(&buf[..n]));
+                if initial.contains("$ ") {
+                    break;
+                }
+            }
+            _ => break,
+        }
+    }
+    assert!(
+        initial.contains("$ "),
+        "should see initial prompt, got: {initial}"
+    );
+
+    // Send NUM_COMMANDS commands, reading the response each time
+    for i in 0..NUM_COMMANDS {
+        // Write command
+        tokio::io::AsyncWriteExt::write_all(&mut stream, b"whoami\r")
+            .await
+            .unwrap_or_else(|e| panic!("write failed at command #{i}: {e}"));
+
+        // Read until we see the next prompt (contains "$ ")
+        let mut response = String::new();
+        let cmd_deadline = tokio::time::Instant::now() + CMD_TIMEOUT;
+        loop {
+            match tokio::time::timeout_at(
+                cmd_deadline,
+                tokio::io::AsyncReadExt::read(&mut stream, &mut buf),
+            )
+            .await
+            {
+                Ok(Ok(n)) if n > 0 => {
+                    response.push_str(&String::from_utf8_lossy(&buf[..n]));
+                    // We expect the echo of "whoami", the output "testuser", and a new "$ " prompt
+                    if response.contains("testuser") && response.ends_with("$ ") {
+                        break;
+                    }
+                    // Also accept if we see "$ " after some output
+                    if response.matches("$ ").count() >= 1 && response.contains("testuser") {
+                        break;
+                    }
+                }
+                Ok(Ok(_)) => break, // EOF
+                Ok(Err(e)) => panic!("read error at command #{i}: {e}"),
+                Err(_) => panic!(
+                    "TIMEOUT at command #{i}/{NUM_COMMANDS} — session frozen \
+                     (backpressure deadlock). Response so far: {response:?}"
+                ),
+            }
+        }
+    }
+
+    // Clean exit
+    let _ = tokio::io::AsyncWriteExt::write_all(&mut stream, b"exit\r").await;
+}

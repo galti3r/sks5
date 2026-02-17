@@ -50,11 +50,15 @@ done
 # Tool availability (set by detect_tools)
 ACT_AVAILABLE=false
 PODMAN_AVAILABLE=false
+DOCKER_AVAILABLE=false
 LLVM_COV_AVAILABLE=false
 MSRV_AVAILABLE=false
 VHS_AVAILABLE=false
+VHS_VIA=""       # "native" | "podman" | "docker"
 AUDIT_AVAILABLE=false
 DENY_AVAILABLE=false
+TRIVY_AVAILABLE=false
+TRIVY_VIA=""     # "native" | "podman" | "docker"
 
 # Error tracking
 declare -a ERRORS=()
@@ -224,14 +228,14 @@ detect_tools() {
     if command -v podman &>/dev/null; then
         PODMAN_AVAILABLE=true
     fi
+    if command -v docker &>/dev/null; then
+        DOCKER_AVAILABLE=true
+    fi
     if command -v cargo-llvm-cov &>/dev/null; then
         LLVM_COV_AVAILABLE=true
     fi
     if rustup toolchain list 2>/dev/null | grep -q '^1\.88'; then
         MSRV_AVAILABLE=true
-    fi
-    if command -v vhs &>/dev/null; then
-        VHS_AVAILABLE=true
     fi
     if command -v cargo-audit &>/dev/null; then
         AUDIT_AVAILABLE=true
@@ -240,18 +244,197 @@ detect_tools() {
         DENY_AVAILABLE=true
     fi
 
+    # trivy: native → podman → docker
+    if command -v trivy &>/dev/null; then
+        TRIVY_AVAILABLE=true; TRIVY_VIA="native"
+    elif $PODMAN_AVAILABLE; then
+        TRIVY_AVAILABLE=true; TRIVY_VIA="podman"
+    elif $DOCKER_AVAILABLE; then
+        TRIVY_AVAILABLE=true; TRIVY_VIA="docker"
+    fi
+
+    # vhs: native → podman → docker
+    if command -v vhs &>/dev/null; then
+        VHS_AVAILABLE=true; VHS_VIA="native"
+    elif $PODMAN_AVAILABLE; then
+        VHS_AVAILABLE=true; VHS_VIA="podman"
+    elif $DOCKER_AVAILABLE; then
+        VHS_AVAILABLE=true; VHS_VIA="docker"
+    fi
+
     echo -e "${CYAN}[Tools]${NC} " \
-        "$(bool_icon $ACT_AVAILABLE) act " \
-        "$(bool_icon $PODMAN_AVAILABLE) podman " \
-        "$(bool_icon $LLVM_COV_AVAILABLE) llvm-cov " \
-        "$(bool_icon $MSRV_AVAILABLE) MSRV 1.88 " \
-        "$(bool_icon $AUDIT_AVAILABLE) audit " \
-        "$(bool_icon $DENY_AVAILABLE) deny " \
-        "$(bool_icon $VHS_AVAILABLE) vhs"
+        "$(tool_label $ACT_AVAILABLE act) " \
+        "$(tool_label $PODMAN_AVAILABLE podman) " \
+        "$(tool_label $LLVM_COV_AVAILABLE llvm-cov) " \
+        "$(tool_label $MSRV_AVAILABLE 'MSRV 1.88') " \
+        "$(tool_label $AUDIT_AVAILABLE audit) " \
+        "$(tool_label $DENY_AVAILABLE deny) " \
+        "$(tool_label_via $TRIVY_AVAILABLE trivy "$TRIVY_VIA") " \
+        "$(tool_label_via $VHS_AVAILABLE vhs "$VHS_VIA")"
 }
 
-bool_icon() {
-    if $1; then echo -e "${GREEN}ok${NC}"; else echo -e "${DIM}--${NC}"; fi
+# ---------------------------------------------------------------------------
+# Container-fallback commands for trivy and vhs
+# ---------------------------------------------------------------------------
+trivy_command() {
+    case "$TRIVY_VIA" in
+        native) echo "trivy" ;;
+        podman) echo "podman run --rm -v ${XDG_RUNTIME_DIR}/podman/podman.sock:/var/run/docker.sock:ro ghcr.io/aquasecurity/trivy:latest" ;;
+        docker) echo "docker run --rm -v /var/run/docker.sock:/var/run/docker.sock:ro ghcr.io/aquasecurity/trivy:latest" ;;
+    esac
+}
+
+# When trivy runs inside a container, the podman socket is mounted as
+# /var/run/docker.sock, so trivy must use the Docker API (--image-src docker).
+trivy_image_src() {
+    case "$TRIVY_VIA" in
+        native) echo "podman" ;;
+        podman|docker) echo "docker" ;;
+    esac
+}
+
+vhs_command() {
+    case "$VHS_VIA" in
+        native) echo "vhs" ;;
+        podman) echo "podman run --rm -v ${PWD}:/vhs ghcr.io/charmbracelet/vhs" ;;
+        docker) echo "docker run --rm -v ${PWD}:/vhs ghcr.io/charmbracelet/vhs" ;;
+    esac
+}
+
+# Display "ok name" or "-- name"
+tool_label() {
+    if $1; then echo -e "${GREEN}ok${NC} $2"; else echo -e "${DIM}--${NC} ${DIM}$2${NC}"; fi
+}
+
+# Display "ok name" or "ok name (podman)" or "-- name"
+tool_label_via() {
+    local available="$1" name="$2" via="$3"
+    if $available; then
+        if [[ "$via" == "native" ]]; then
+            echo -e "${GREEN}ok${NC} $name"
+        else
+            echo -e "${GREEN}ok${NC} $name ${DIM}($via)${NC}"
+        fi
+    else
+        echo -e "${DIM}--${NC} ${DIM}$name${NC}"
+    fi
+}
+
+plan_run() {
+    printf "  ${GREEN}%-3s${NC} %-40s %s\n" "RUN" "$1" "${2:-}"
+}
+plan_not() {
+    printf "  ${YELLOW}%-3s${NC} %-40s ${DIM}%s${NC}\n" "---" "$1" "$2"
+}
+plan_phase() {
+    echo -e "  ${BLUE}${BOLD}$1${NC}"
+}
+
+# ---------------------------------------------------------------------------
+# show_plan — display a summary of what will run and what won't
+# ---------------------------------------------------------------------------
+show_plan() {
+    local -a not_covered=()
+    local run_count=0
+
+    echo ""
+    echo -e "${BOLD}  Will run${NC}"
+    echo -e "  ${DIM}──────────────────────────────────────────────────${NC}"
+
+    # Phase 1
+    plan_phase "Phase 1: Lint + Security"
+    if $ACT_AVAILABLE; then
+        plan_run "CI Lint + Docker Lint (act)"
+    else
+        plan_run "Format check"
+    fi
+    run_count=$(( run_count + 1 ))
+    if $AUDIT_AVAILABLE; then plan_run "Security: audit"; run_count=$(( run_count + 1 )); else not_covered+=("Security: audit"); fi
+    if $DENY_AVAILABLE; then plan_run "Security: deny"; run_count=$(( run_count + 1 )); else not_covered+=("Security: deny"); fi
+    if $MSRV_AVAILABLE; then plan_run "MSRV (1.88)"; run_count=$(( run_count + 1 )); else not_covered+=("MSRV (1.88)"); fi
+
+    # Phase 2
+    plan_phase "Phase 2: Compilation"
+    if ! $ACT_AVAILABLE; then plan_run "Clippy"; run_count=$(( run_count + 1 )); fi
+    plan_run "Compile tests"
+    run_count=$(( run_count + 1 ))
+
+    # Phase 3
+    plan_phase "Phase 3: Tests"
+    plan_run "Unit tests"
+    run_count=$(( run_count + 1 ))
+    declare -A PLAN_GROUPS
+    while IFS= read -r test; do
+        local group
+        group=$(classify_test "$test")
+        PLAN_GROUPS[$group]=$(( ${PLAN_GROUPS[$group]:-0} + 1 ))
+    done < <(discover_e2e_tests)
+    declare -A PLAN_LABELS=([ssh_socks5]="SSH & SOCKS5" [acl_security]="ACL & Security" [api_dashboard]="API & Dashboard" [integrations]="Integrations" [catchall]="Catchall")
+    for group in ssh_socks5 acl_security api_dashboard integrations catchall; do
+        local count="${PLAN_GROUPS[$group]:-0}"
+        if (( count > 0 )); then
+            plan_run "E2E: ${PLAN_LABELS[$group]}" "${count} tests"
+            run_count=$(( run_count + 1 ))
+        fi
+    done
+
+    # Phase 4
+    plan_phase "Phase 4: Coverage + Browser + Extras"
+    if ! $SKIP_COVERAGE && $LLVM_COV_AVAILABLE; then
+        plan_run "Coverage (llvm-cov)"; run_count=$(( run_count + 1 ))
+    else
+        not_covered+=("Coverage")
+    fi
+    if ! $SKIP_BROWSER && $PODMAN_AVAILABLE; then
+        plan_run "E2E Browser + Screenshots"; run_count=$(( run_count + 1 ))
+    else
+        not_covered+=("E2E Browser + Screenshots")
+    fi
+    if $WITH_DOCKER && $PODMAN_AVAILABLE; then
+        if $TRIVY_AVAILABLE; then
+            local trivy_label="Docker Build + Scan"
+            [[ "$TRIVY_VIA" != "native" ]] && trivy_label="Docker Build + Scan (trivy via $TRIVY_VIA)"
+            plan_run "$trivy_label"; run_count=$(( run_count + 1 ))
+        else
+            plan_run "Docker Build"; run_count=$(( run_count + 1 ))
+            not_covered+=("Docker Scan")
+        fi
+    elif ! $WITH_DOCKER; then
+        not_covered+=("Docker Build + Scan      -> use: make validate-docker")
+    fi
+    if $VHS_AVAILABLE; then
+        local tape_count=0
+        for tape in "$PROJECT_ROOT"/contrib/*.tape; do [[ -f "$tape" ]] && tape_count=$(( tape_count + 1 )); done
+        if (( tape_count > 0 )); then
+            local vhs_label="VHS"
+            [[ "$VHS_VIA" != "native" ]] && vhs_label="VHS (via $VHS_VIA)"
+            plan_run "$vhs_label" "${tape_count} tapes"; run_count=$(( run_count + 1 ))
+        fi
+    else
+        not_covered+=("VHS recordings")
+    fi
+
+    echo -e "  ${DIM}──────────────────────────────────────────────────${NC}"
+
+    # Not covered section
+    if (( ${#not_covered[@]} > 0 )); then
+        echo ""
+        echo -e "${BOLD}  Not covered${NC}"
+        echo -e "  ${DIM}──────────────────────────────────────────────────${NC}"
+        for entry in "${not_covered[@]}"; do
+            echo -e "  ${YELLOW}---${NC} ${entry}"
+        done
+        echo -e "  ${DIM}──────────────────────────────────────────────────${NC}"
+        # Show make setup hint only for missing tools (not for --with-docker hint)
+        local has_missing_tools=false
+        for entry in "${not_covered[@]}"; do
+            [[ "$entry" != *"-> use:"* ]] && has_missing_tools=true && break
+        done
+        if $has_missing_tools; then
+            echo -e "  ${YELLOW}Fix: ${BOLD}make setup${NC}${YELLOW} (auto-installs or creates podman/docker wrappers)${NC}"
+        fi
+    fi
+    echo ""
 }
 
 # ---------------------------------------------------------------------------
@@ -459,12 +642,15 @@ phase4() {
     fi
 
     if $WITH_DOCKER && $PODMAN_AVAILABLE; then
-        if command -v trivy &>/dev/null; then
-            run_job "Docker Build + Scan" bash -c \
-                'make docker-build-all && trivy image --image-src podman --exit-code 1 --severity CRITICAL,HIGH sks5:latest && trivy image --image-src podman --exit-code 1 --severity CRITICAL,HIGH sks5:scratch' &
+        if $TRIVY_AVAILABLE; then
+            local trivy_cmd trivy_src
+            trivy_cmd=$(trivy_command)
+            trivy_src=$(trivy_image_src)
+            run_job "Docker Build + Scan ($TRIVY_VIA)" bash -c \
+                "make docker-build-all && $trivy_cmd image --image-src $trivy_src --exit-code 1 --severity CRITICAL,HIGH sks5:latest && $trivy_cmd image --image-src $trivy_src --exit-code 1 --severity CRITICAL,HIGH sks5:scratch" &
         else
             run_job "Docker Build" make docker-build-all &
-            log_skip "Docker Scan (trivy not installed)"
+            log_skip "Docker Scan (trivy not available)"
             SKIP_COUNT=$(( SKIP_COUNT + 1 ))
         fi
         has_jobs=true
@@ -474,12 +660,20 @@ phase4() {
     fi
 
     if $VHS_AVAILABLE; then
+        local vhs_cmd
+        vhs_cmd=$(vhs_command)
         local tape_count=0
         for tape in "$PROJECT_ROOT"/contrib/*.tape; do
             if [[ -f "$tape" ]]; then
-                local tape_name
+                local tape_name tape_path
                 tape_name=$(basename "$tape" .tape)
-                run_job "VHS: $tape_name" vhs "$tape" &
+                # Container VHS mounts $PWD:/vhs — pass relative path
+                if [[ "$VHS_VIA" == "native" ]]; then
+                    tape_path="$tape"
+                else
+                    tape_path="${tape#"$PROJECT_ROOT"/}"
+                fi
+                run_job "VHS: $tape_name ($VHS_VIA)" $vhs_cmd "$tape_path" &
                 has_jobs=true
                 tape_count=$(( tape_count + 1 ))
             fi
@@ -557,6 +751,7 @@ main() {
     fi
 
     detect_tools
+    show_plan
     auto_install
 
     phase1

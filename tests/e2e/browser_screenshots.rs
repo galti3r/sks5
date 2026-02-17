@@ -416,7 +416,6 @@ const TOKEN: &str = "screenshot-test-token";
 // Screenshot 1: Dashboard dark theme with live data
 // ---------------------------------------------------------------------------
 #[tokio::test]
-#[ignore]
 async fn screenshot_dashboard_dark() {
     if !podman_available() {
         eprintln!("SKIPPED: podman not available");
@@ -462,7 +461,6 @@ async fn screenshot_dashboard_dark() {
 // Screenshot 2: Dashboard light theme
 // ---------------------------------------------------------------------------
 #[tokio::test]
-#[ignore]
 async fn screenshot_dashboard_light() {
     if !podman_available() {
         eprintln!("SKIPPED: podman not available");
@@ -507,7 +505,6 @@ async fn screenshot_dashboard_light() {
 // Screenshot 3: User detail modal with enriched data
 // ---------------------------------------------------------------------------
 #[tokio::test]
-#[ignore]
 async fn screenshot_user_detail_modal() {
     if !podman_available() {
         eprintln!("SKIPPED: podman not available");

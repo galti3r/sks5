@@ -8,6 +8,7 @@ use crate::shell::ShellSession;
 use crate::ssh::session::ClientSession;
 use crate::utils::generate_correlation_id;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -31,6 +32,8 @@ pub struct SshHandler {
     connected_at: Instant,
     /// Cancellation token for admin kick — shared with the kick registry.
     kick_token: CancellationToken,
+    /// Counts SSH_MSG_CHANNEL_DATA messages processed (diagnostic for backpressure issues).
+    data_msg_count: AtomicU64,
 }
 
 impl SshHandler {
@@ -45,6 +48,7 @@ impl SshHandler {
             total_auth_attempts: 0,
             connected_at: Instant::now(),
             kick_token: CancellationToken::new(),
+            data_msg_count: AtomicU64::new(0),
         }
     }
 
@@ -472,11 +476,17 @@ impl russh::server::Handler for SshHandler {
         }
 
         let channel_id = channel.id();
-        let mut shell = ShellSession::new(
-            username.clone(),
-            self.ctx.config.shell.hostname.clone(),
-            channel,
-        );
+
+        // Drop the Channel immediately. russh sends every incoming message
+        // (data, pty_request, shell_request, window_adjust, …) to the
+        // Channel's internal bounded mpsc *before* calling the Handler
+        // callback. If the receiver is never consumed the buffer fills
+        // up (default 100 messages) and the session event loop deadlocks.
+        // Channel has no Drop impl, so dropping it does NOT close the SSH
+        // channel — the ChannelRef in Session::channels keeps it alive.
+        drop(channel);
+
+        let mut shell = ShellSession::new(username.clone(), self.ctx.config.shell.hostname.clone());
 
         // Build ShellContext from user data for extended shell commands
         let shell_ctx = ShellContext {
@@ -925,6 +935,21 @@ impl russh::server::Handler for SshHandler {
         // H-2: Defense-in-depth - verify authentication
         if !self.session_state.authenticated {
             return Ok(());
+        }
+
+        // Diagnostic: track data message count to detect backpressure issues.
+        // russh sends every SSH_MSG_CHANNEL_DATA to the Channel's bounded mpsc
+        // (default capacity 100) *before* calling this handler. If the Channel
+        // receiver is not drained, the session event loop blocks permanently.
+        let msg_num = self.data_msg_count.fetch_add(1, Ordering::Relaxed) + 1;
+        if msg_num == 80 {
+            warn!(
+                conn_id = %self.conn_id,
+                user = ?self.session_state.username,
+                data_msg_count = msg_num,
+                "approaching russh channel_buffer_size limit (default=100) — \
+                 session may freeze if Channel receiver is not drained"
+            );
         }
 
         // Check if user has been kicked by administrator
