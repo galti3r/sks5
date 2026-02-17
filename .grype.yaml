@@ -1,0 +1,15 @@
+# Grype configuration — accepted CVEs
+# https://github.com/anchore/grype#specifying-matches-to-ignore
+#
+# Format:
+#   ignore:
+#     - vulnerability: CVE-YYYY-NNNNN
+#       reason: "justification"
+#       # expires: "2026-12-31"   (optional — remove ignore after this date)
+#
+# Only the repository owner decides what to exclude and for how long.
+
+ignore:
+  - vulnerability: CVE-2025-60876
+    reason: "busybox 1.37.0-r20 in Alpine 3.22 — no upstream fix yet"
+    # expires: 2026-03-03

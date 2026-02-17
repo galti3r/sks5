@@ -3,7 +3,7 @@ SHELL := /bin/bash
 # Detect host architecture for musl target
 MUSL_TARGET := $(shell uname -m | sed 's/x86_64/x86_64-unknown-linux-musl/' | sed 's/aarch64/aarch64-unknown-linux-musl/')
 
-.PHONY: build build-debug build-static test test-unit test-e2e test-e2e-all test-e2e-browser test-screenshots test-perf test-e2e-podman test-compose test-compose-validate coverage run fmt clippy check docker-build docker-build-scratch docker-build-all docker-build-cross docker-build-multiarch docker-build-package docker-scan docker-build-scan docker-run docker-run-scratch compose-up compose-down hash-password clean security-scan test-all quick-start init completions manpage bench changelog install-act ensure-podman-socket ci-lint ci-test ci-docker-lint ci-e2e ci validate validate-docker validate-ci validate-msrv validate-coverage validate-security setup
+.PHONY: build build-debug build-static test test-unit test-e2e test-e2e-all test-e2e-browser test-screenshots test-perf test-e2e-podman test-compose test-compose-validate coverage run fmt clippy check docker-build docker-build-scratch docker-build-all docker-build-cross docker-build-multiarch docker-build-package docker-scan docker-build-scan docker-run docker-run-scratch compose-up compose-down hash-password clean security-scan test-all quick-start init completions manpage bench changelog install-act install-hooks ensure-podman-socket ci-lint ci-test ci-docker-lint ci-e2e ci validate validate-docker validate-ci validate-msrv validate-coverage validate-security setup
 
 build:
 	cargo build --release
@@ -103,8 +103,14 @@ docker-build-all: docker-build docker-build-scratch
 
 docker-scan: ensure-podman-socket
 	@command -v trivy >/dev/null 2>&1 || { echo "Install trivy: https://trivy.dev"; exit 1; }
-	trivy image --image-src podman --exit-code 1 --severity CRITICAL,HIGH,MEDIUM sks5:latest
-	trivy image --image-src podman --exit-code 1 --severity CRITICAL,HIGH,MEDIUM sks5:scratch
+	trivy image --image-src podman --exit-code 1 --severity CRITICAL,HIGH,MEDIUM --ignorefile .trivyignore sks5:latest
+	trivy image --image-src podman --exit-code 1 --severity CRITICAL,HIGH,MEDIUM --ignorefile .trivyignore sks5:scratch
+	@if command -v grype >/dev/null 2>&1; then \
+		grype podman:sks5:latest --fail-on medium -c .grype.yaml; \
+		grype podman:sks5:scratch --fail-on medium -c .grype.yaml; \
+	else \
+		echo "  -- grype not installed (skipping)"; \
+	fi
 
 docker-build-scan: docker-build-all docker-scan
 
@@ -225,8 +231,37 @@ setup:
 		  else \
 		    echo "  !! vhs (no binary, no podman, no docker)"; \
 		  fi; }
+	@# grype: binary install → podman wrapper → docker wrapper
+	@command -v grype >/dev/null 2>&1 && echo "  ok grype (native)" || \
+		{ echo "  .. grype"; \
+		  curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh 2>/dev/null | sh -s -- -b ~/.local/bin 2>/dev/null \
+		  && echo "  ok grype (installed)" \
+		  || { if command -v podman >/dev/null 2>&1; then \
+		         echo "  .. grype binary failed, creating podman wrapper"; \
+		         printf '#!/bin/sh\nexec podman run --rm -v "$${XDG_RUNTIME_DIR}/podman/podman.sock:/var/run/docker.sock:ro" -v "$$PWD:$$PWD:ro" -w "$$PWD" docker.io/anchore/grype:latest "$$@"\n' > ~/.local/bin/grype \
+		         && chmod +x ~/.local/bin/grype \
+		         && echo "  ok grype (podman wrapper)"; \
+		       elif command -v docker >/dev/null 2>&1; then \
+		         echo "  .. grype binary failed, creating docker wrapper"; \
+		         printf '#!/bin/sh\nexec docker run --rm -v /var/run/docker.sock:/var/run/docker.sock:ro -v "$$PWD:$$PWD:ro" -w "$$PWD" docker.io/anchore/grype:latest "$$@"\n' > ~/.local/bin/grype \
+		         && chmod +x ~/.local/bin/grype \
+		         && echo "  ok grype (docker wrapper)"; \
+		       else \
+		         echo "  !! grype (no binary, no podman, no docker)"; \
+		       fi; }; }
+	@# Install git hooks
+	@$(MAKE) --no-print-directory install-hooks
 	@echo ""
 	@echo "Done. Re-run 'make validate-docker' to verify."
+
+install-hooks:
+	@echo "  .. git hooks"
+	@mkdir -p .git/hooks
+	@for hook in scripts/hooks/*; do \
+		name=$$(basename "$$hook"); \
+		ln -sf "../../$$hook" ".git/hooks/$$name"; \
+	done
+	@echo "  ok git hooks (symlinked)"
 
 install-act:
 	@echo "Installing act to ~/.local/bin..."

@@ -59,6 +59,8 @@ AUDIT_AVAILABLE=false
 DENY_AVAILABLE=false
 TRIVY_AVAILABLE=false
 TRIVY_VIA=""     # "native" | "podman" | "docker"
+GRYPE_AVAILABLE=false
+GRYPE_VIA=""     # "native" | "podman" | "docker"
 
 # Error tracking
 declare -a ERRORS=()
@@ -245,17 +247,59 @@ detect_tools() {
     fi
 
     # trivy: native → podman → docker
+    # A shell wrapper (created by `make setup`) counts as podman/docker, not native
     if command -v trivy &>/dev/null; then
-        TRIVY_AVAILABLE=true; TRIVY_VIA="native"
+        local trivy_bin
+        trivy_bin=$(command -v trivy)
+        if file "$trivy_bin" 2>/dev/null | grep -q 'ELF'; then
+            TRIVY_AVAILABLE=true; TRIVY_VIA="native"
+        elif grep -q 'podman run' "$trivy_bin" 2>/dev/null; then
+            TRIVY_AVAILABLE=true; TRIVY_VIA="podman"
+        elif grep -q 'docker run' "$trivy_bin" 2>/dev/null; then
+            TRIVY_AVAILABLE=true; TRIVY_VIA="docker"
+        else
+            TRIVY_AVAILABLE=true; TRIVY_VIA="native"
+        fi
     elif $PODMAN_AVAILABLE; then
         TRIVY_AVAILABLE=true; TRIVY_VIA="podman"
     elif $DOCKER_AVAILABLE; then
         TRIVY_AVAILABLE=true; TRIVY_VIA="docker"
     fi
 
+    # grype: native → podman → docker
+    # A shell wrapper (created by `make setup`) counts as podman/docker, not native
+    if command -v grype &>/dev/null; then
+        local grype_bin
+        grype_bin=$(command -v grype)
+        if file "$grype_bin" 2>/dev/null | grep -q 'ELF'; then
+            GRYPE_AVAILABLE=true; GRYPE_VIA="native"
+        elif grep -q 'podman run' "$grype_bin" 2>/dev/null; then
+            GRYPE_AVAILABLE=true; GRYPE_VIA="podman"
+        elif grep -q 'docker run' "$grype_bin" 2>/dev/null; then
+            GRYPE_AVAILABLE=true; GRYPE_VIA="docker"
+        else
+            GRYPE_AVAILABLE=true; GRYPE_VIA="native"
+        fi
+    elif $PODMAN_AVAILABLE; then
+        GRYPE_AVAILABLE=true; GRYPE_VIA="podman"
+    elif $DOCKER_AVAILABLE; then
+        GRYPE_AVAILABLE=true; GRYPE_VIA="docker"
+    fi
+
     # vhs: native → podman → docker
+    # A shell wrapper (created by `make setup`) counts as podman/docker, not native
     if command -v vhs &>/dev/null; then
-        VHS_AVAILABLE=true; VHS_VIA="native"
+        local vhs_bin
+        vhs_bin=$(command -v vhs)
+        if file "$vhs_bin" 2>/dev/null | grep -q 'ELF'; then
+            VHS_AVAILABLE=true; VHS_VIA="native"
+        elif grep -q 'podman run' "$vhs_bin" 2>/dev/null; then
+            VHS_AVAILABLE=true; VHS_VIA="podman"
+        elif grep -q 'docker run' "$vhs_bin" 2>/dev/null; then
+            VHS_AVAILABLE=true; VHS_VIA="docker"
+        else
+            VHS_AVAILABLE=true; VHS_VIA="native"
+        fi
     elif $PODMAN_AVAILABLE; then
         VHS_AVAILABLE=true; VHS_VIA="podman"
     elif $DOCKER_AVAILABLE; then
@@ -270,7 +314,16 @@ detect_tools() {
         "$(tool_label $AUDIT_AVAILABLE audit) " \
         "$(tool_label $DENY_AVAILABLE deny) " \
         "$(tool_label_via $TRIVY_AVAILABLE trivy "$TRIVY_VIA") " \
+        "$(tool_label_via $GRYPE_AVAILABLE grype "$GRYPE_VIA") " \
         "$(tool_label_via $VHS_AVAILABLE vhs "$VHS_VIA")"
+
+    # Version / branch / commit
+    local ver branch commit dirty=""
+    ver=$(sed -n 's/^version = "\(.*\)"/\1/p' "$PROJECT_ROOT/Cargo.toml" | head -1)
+    branch=$(git -C "$PROJECT_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?")
+    commit=$(git -C "$PROJECT_ROOT" rev-parse --short HEAD 2>/dev/null || echo "?")
+    git -C "$PROJECT_ROOT" diff --quiet HEAD 2>/dev/null || dirty=" ${YELLOW}(dirty)${NC}"
+    echo -e "${CYAN}[Build]${NC}  ${BOLD}${ver}${NC} | ${branch} @ ${commit}${dirty}"
 }
 
 # ---------------------------------------------------------------------------
@@ -279,8 +332,8 @@ detect_tools() {
 trivy_command() {
     case "$TRIVY_VIA" in
         native) echo "trivy" ;;
-        podman) echo "podman run --rm -v ${XDG_RUNTIME_DIR}/podman/podman.sock:/var/run/docker.sock:ro ghcr.io/aquasecurity/trivy:latest" ;;
-        docker) echo "docker run --rm -v /var/run/docker.sock:/var/run/docker.sock:ro ghcr.io/aquasecurity/trivy:latest" ;;
+        podman) echo "podman run --rm -v ${XDG_RUNTIME_DIR}/podman/podman.sock:/var/run/docker.sock:ro -v ${PROJECT_ROOT}:${PROJECT_ROOT}:ro -w ${PROJECT_ROOT} ghcr.io/aquasecurity/trivy:latest" ;;
+        docker) echo "docker run --rm -v /var/run/docker.sock:/var/run/docker.sock:ro -v ${PROJECT_ROOT}:${PROJECT_ROOT}:ro -w ${PROJECT_ROOT} ghcr.io/aquasecurity/trivy:latest" ;;
     esac
 }
 
@@ -293,12 +346,75 @@ trivy_image_src() {
     esac
 }
 
+grype_command() {
+    case "$GRYPE_VIA" in
+        native) echo "grype" ;;
+        podman) echo "podman run --rm -v ${XDG_RUNTIME_DIR}/podman/podman.sock:/var/run/docker.sock:ro -v ${PROJECT_ROOT}:${PROJECT_ROOT}:ro -w ${PROJECT_ROOT} docker.io/anchore/grype:latest" ;;
+        docker) echo "docker run --rm -v /var/run/docker.sock:/var/run/docker.sock:ro -v ${PROJECT_ROOT}:${PROJECT_ROOT}:ro -w ${PROJECT_ROOT} docker.io/anchore/grype:latest" ;;
+    esac
+}
+
+# When grype runs inside a container, images are accessed via Docker API
+grype_image_prefix() {
+    case "$GRYPE_VIA" in
+        native) echo "podman:" ;;
+        podman|docker) echo "docker:" ;;
+    esac
+}
+
 vhs_command() {
     case "$VHS_VIA" in
         native) echo "vhs" ;;
         podman) echo "podman run --rm -v ${PWD}:/vhs ghcr.io/charmbracelet/vhs" ;;
         docker) echo "docker run --rm -v ${PWD}:/vhs ghcr.io/charmbracelet/vhs" ;;
     esac
+}
+
+# ---------------------------------------------------------------------------
+# check_ignore_expiry — fail if any CVE ignore entry has expired
+# Parses "# expires: YYYY-MM-DD" comments in .grype.yaml and .trivyignore
+# ---------------------------------------------------------------------------
+check_ignore_expiry() {
+    local today has_expired=false
+    today=$(date +%Y-%m-%d)
+
+    # Check .grype.yaml "# expires: YYYY-MM-DD" lines
+    if [[ -f "$PROJECT_ROOT/.grype.yaml" ]]; then
+        while IFS= read -r line; do
+            local exp_date
+            exp_date=$(echo "$line" | sed -n 's/.*#[[:space:]]*expires:[[:space:]]*\([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\).*/\1/p')
+            if [[ -n "$exp_date" ]] && [[ "$today" > "$exp_date" || "$today" == "$exp_date" ]]; then
+                local cve=""
+                # Look for the vulnerability line above this expires comment
+                cve=$(grep -B5 "$exp_date" "$PROJECT_ROOT/.grype.yaml" | sed -n 's/.*vulnerability:[[:space:]]*\(CVE-[^ ]*\).*/\1/p' | tail -1)
+                log_failure "Expired CVE ignore: ${cve:-unknown} (expired $exp_date)"
+                has_expired=true
+            fi
+        done < "$PROJECT_ROOT/.grype.yaml"
+    fi
+
+    # Check .trivyignore "expires: YYYY-MM-DD" comments
+    if [[ -f "$PROJECT_ROOT/.trivyignore" ]]; then
+        while IFS= read -r line; do
+            local exp_date
+            exp_date=$(echo "$line" | sed -n 's/.*expires:[[:space:]]*\([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\).*/\1/p')
+            if [[ -n "$exp_date" ]] && [[ "$today" > "$exp_date" || "$today" == "$exp_date" ]]; then
+                local cve
+                cve=$(echo "$line" | sed -n 's/^\(CVE-[^ ]*\).*/\1/p')
+                if [[ -z "$cve" ]]; then
+                    cve=$(sed -n "/$exp_date/{x;p;d;}; x" "$PROJECT_ROOT/.trivyignore" | sed -n 's/^\(CVE-[^ ]*\).*/\1/p')
+                fi
+                log_failure "Expired CVE ignore: ${cve:-unknown} (expired $exp_date)"
+                has_expired=true
+            fi
+        done < "$PROJECT_ROOT/.trivyignore"
+    fi
+
+    if $has_expired; then
+        log_warning "Remove expired entries from .grype.yaml / .trivyignore or update the expiry date"
+        return 1
+    fi
+    return 0
 }
 
 # Display "ok name" or "-- name"
@@ -401,6 +517,13 @@ show_plan() {
         fi
     elif ! $WITH_DOCKER; then
         not_covered+=("Docker Build + Scan      -> use: make validate-docker")
+    fi
+    if $WITH_DOCKER && $GRYPE_AVAILABLE; then
+        local grype_label="Docker Scan: Grype"
+        [[ "$GRYPE_VIA" != "native" ]] && grype_label="Docker Scan: Grype (via $GRYPE_VIA)"
+        plan_run "$grype_label"; run_count=$(( run_count + 1 ))
+    elif $WITH_DOCKER && ! $GRYPE_AVAILABLE; then
+        not_covered+=("Docker Scan: Grype")
     fi
     if $VHS_AVAILABLE; then
         local tape_count=0
@@ -613,6 +736,15 @@ phase3() {
 phase4() {
     log_phase "Phase 4" "Coverage + Browser + Extras"
 
+    # Fail early if any CVE ignore entry has expired
+    if $WITH_DOCKER; then
+        if ! check_ignore_expiry; then
+            ERRORS+=("Phase 4: Extras > Expired CVE ignores")
+            FAIL_COUNT=$(( FAIL_COUNT + 1 ))
+            JOB_COUNT=$(( JOB_COUNT + 1 ))
+        fi
+    fi
+
     local has_jobs=false
 
     if ! $SKIP_COVERAGE && $LLVM_COV_AVAILABLE; then
@@ -647,15 +779,27 @@ phase4() {
             trivy_cmd=$(trivy_command)
             trivy_src=$(trivy_image_src)
             run_job "Docker Build + Scan ($TRIVY_VIA)" bash -c \
-                "make docker-build-all && $trivy_cmd image --image-src $trivy_src --exit-code 1 --severity CRITICAL,HIGH,MEDIUM sks5:latest && $trivy_cmd image --image-src $trivy_src --exit-code 1 --severity CRITICAL,HIGH,MEDIUM sks5:scratch" &
+                "make docker-build-all && $trivy_cmd image --image-src $trivy_src --exit-code 1 --severity CRITICAL,HIGH,MEDIUM --ignorefile .trivyignore sks5:latest && $trivy_cmd image --image-src $trivy_src --exit-code 1 --severity CRITICAL,HIGH,MEDIUM --ignorefile .trivyignore sks5:scratch" &
         else
             run_job "Docker Build" make docker-build-all &
-            log_skip "Docker Scan (trivy not available)"
+            log_skip "Docker Scan: Trivy (not available)"
             SKIP_COUNT=$(( SKIP_COUNT + 1 ))
         fi
         has_jobs=true
     elif $WITH_DOCKER; then
         log_skip "Docker Build (podman not available)"
+        SKIP_COUNT=$(( SKIP_COUNT + 1 ))
+    fi
+
+    if $WITH_DOCKER && $GRYPE_AVAILABLE; then
+        local grype_cmd grype_prefix
+        grype_cmd=$(grype_command)
+        grype_prefix=$(grype_image_prefix)
+        run_job "Docker Scan: Grype ($GRYPE_VIA)" bash -c \
+            "$grype_cmd ${grype_prefix}sks5:latest --fail-on medium -c .grype.yaml && $grype_cmd ${grype_prefix}sks5:scratch --fail-on medium -c .grype.yaml" &
+        has_jobs=true
+    elif $WITH_DOCKER && ! $GRYPE_AVAILABLE; then
+        log_skip "Docker Scan: Grype (not available)"
         SKIP_COUNT=$(( SKIP_COUNT + 1 ))
     fi
 
