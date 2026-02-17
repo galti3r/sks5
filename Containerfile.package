@@ -16,7 +16,7 @@
 #   alpine            — Alpine-based, ~12 MB, has shell for debugging
 
 # --- CA certs (no QEMU needed — runs on build platform) ---
-FROM --platform=$BUILDPLATFORM alpine:3.21 AS certs
+FROM --platform=$BUILDPLATFORM alpine:3.22 AS certs
 RUN apk upgrade --no-cache && apk add --no-cache ca-certificates
 
 # --- Target: minimal (scratch) — DEFAULT ---
@@ -40,7 +40,7 @@ ENTRYPOINT ["/sks5"]
 CMD ["--config", "/etc/sks5/config.toml"]
 
 # --- Target: alpine ---
-FROM alpine:3.21 AS alpine
+FROM alpine:3.22 AS alpine
 
 ARG TARGETARCH
 

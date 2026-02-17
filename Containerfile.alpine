@@ -12,7 +12,7 @@ COPY assets/ assets/
 COPY benches/ benches/
 RUN cargo build --release && strip target/release/sks5
 
-FROM alpine:3.21
+FROM alpine:3.22
 
 LABEL org.opencontainers.image.title="sks5" \
       org.opencontainers.image.description="Lightweight SSH server with SOCKS5 proxy" \
