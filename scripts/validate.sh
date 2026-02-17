@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# sks5 Comprehensive Validation Script
-# Parallelized 4-phase validation with dynamic test discovery
-# Usage: ./scripts/validate.sh [--skip-browser] [--skip-coverage] [--skip-act] [--dry-run]
+# sks5 Comprehensive Validation Script v2
+# Lane-parallel validation with fail-fast, live dashboard, and Gantt summary
+# Usage: ./scripts/validate.sh [--skip-browser] [--skip-coverage] [--skip-act]
+#                               [--with-docker] [--plain] [--dry-run]
 set -uo pipefail
 
-# ---------------------------------------------------------------------------
+# ===========================================================================
 # Configuration
-# ---------------------------------------------------------------------------
+# ===========================================================================
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_ROOT"
 
 TMP_DIR=$(mktemp -d)
-trap 'rm -rf "$TMP_DIR"' EXIT
 TOTAL_START=$SECONDS
 
 # CLI flags
@@ -21,6 +21,7 @@ SKIP_COVERAGE=false
 SKIP_ACT=false
 WITH_DOCKER=false
 DRY_RUN=false
+FORCE_PLAIN=false
 
 for arg in "$@"; do
     case "$arg" in
@@ -28,16 +29,18 @@ for arg in "$@"; do
         --skip-coverage) SKIP_COVERAGE=true ;;
         --skip-act)      SKIP_ACT=true ;;
         --with-docker)   WITH_DOCKER=true ;;
+        --plain)         FORCE_PLAIN=true ;;
         --dry-run)       DRY_RUN=true ;;
         --help|-h)
-            echo "Usage: $0 [--skip-browser] [--skip-coverage] [--skip-act] [--with-docker] [--dry-run]"
+            echo "Usage: $0 [options]"
             echo ""
             echo "Options:"
             echo "  --skip-browser   Skip browser E2E tests (requires Podman + Chrome)"
             echo "  --skip-coverage  Skip code coverage generation"
             echo "  --skip-act       Skip act-based CI jobs even if act is available"
-            echo "  --with-docker    Include Docker image build verification (requires Podman)"
-            echo "  --dry-run        Show what would be executed without running"
+            echo "  --with-docker    Include Docker image build + security scan"
+            echo "  --plain          Force plain output (no live dashboard)"
+            echo "  --dry-run        Show planned execution without running"
             exit 0
             ;;
         *)
@@ -47,32 +50,16 @@ for arg in "$@"; do
     esac
 done
 
-# Tool availability (set by detect_tools)
-ACT_AVAILABLE=false
-PODMAN_AVAILABLE=false
-DOCKER_AVAILABLE=false
-LLVM_COV_AVAILABLE=false
-MSRV_AVAILABLE=false
-VHS_AVAILABLE=false
-VHS_VIA=""       # "native" | "podman" | "docker"
-AUDIT_AVAILABLE=false
-DENY_AVAILABLE=false
-TRIVY_AVAILABLE=false
-TRIVY_VIA=""     # "native" | "podman" | "docker"
-GRYPE_AVAILABLE=false
-GRYPE_VIA=""     # "native" | "podman" | "docker"
+# Auto-detect display mode: pretty if TTY, plain otherwise
+PRETTY_MODE=true
+if $FORCE_PLAIN || ! [[ -t 1 ]]; then
+    PRETTY_MODE=false
+fi
 
-# Error tracking
-declare -a ERRORS=()
-JOB_COUNT=0
-PASS_COUNT=0
-FAIL_COUNT=0
-SKIP_COUNT=0
-
-# ---------------------------------------------------------------------------
-# Colors & formatting
-# ---------------------------------------------------------------------------
-if [[ -t 1 ]]; then
+# ===========================================================================
+# Colors & Symbols
+# ===========================================================================
+if [[ -t 1 ]] && ! $FORCE_PLAIN; then
     RED='\033[0;31m'
     GREEN='\033[0;32m'
     YELLOW='\033[1;33m'
@@ -85,144 +72,119 @@ else
     RED='' GREEN='' YELLOW='' BLUE='' CYAN='' BOLD='' DIM='' NC=''
 fi
 
-log_header() {
-    echo ""
-    echo -e "${BOLD}=========================================${NC}"
-    echo -e "${BOLD}  $1${NC}"
-    echo -e "${BOLD}=========================================${NC}"
-    echo ""
+SPINNER=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
+SPIN_IDX=0
+SYM_OK="${GREEN}✓${NC}"
+SYM_FAIL="${RED}✗${NC}"
+SYM_WAIT="${DIM}○${NC}"
+SYM_SKIP="${YELLOW}--${NC}"
+SYM_KILL="${DIM}○${NC}"
+
+get_spinner() {
+    printf '%s' "${CYAN}${SPINNER[$SPIN_IDX]}${NC}"
+    SPIN_IDX=$(( (SPIN_IDX + 1) % ${#SPINNER[@]} ))
 }
 
-log_phase() {
-    echo ""
-    echo -e "${BLUE}${BOLD}[$1]${NC} ${BOLD}$2${NC}"
-}
+# ===========================================================================
+# Data Structures
+# ===========================================================================
+# Lanes
+declare -a LANE_ORDER=()
+declare -A LANE_DISPLAY=()
+declare -A LANE_TASKS=()
 
-log_start() {
-    echo -e "  ${DIM}>${NC} $1"
-}
+# Tasks
+declare -a TASK_ORDER=()
+declare -A TASK_DISPLAY=()
+declare -A TASK_LANE=()
+declare -A TASK_STATUS=()     # running | done | failed | killed
+declare -A TASK_START=()
+declare -A TASK_END=()
+declare -A TASK_EXIT=()
+declare -A TASK_PID=()        # safe_name -> PID (reverse of PID_TO_TASK)
 
-log_success() {
-    local duration="${2:-}"
-    if [[ -n "$duration" ]]; then
-        printf "  ${GREEN}%-2s${NC} %-38s ${DIM}%s${NC}\n" "ok" "$1" "${duration}s"
-    else
-        echo -e "  ${GREEN}ok${NC} $1"
-    fi
-}
+# PID tracking
+declare -A PID_TO_TASK=()
+declare -a ACTIVE_PIDS=()
 
-log_failure() {
-    local duration="${2:-}"
-    if [[ -n "$duration" ]]; then
-        printf "  ${RED}%-2s${NC} %-38s ${DIM}%s${NC}\n" "!!" "$1" "${duration}s"
-    else
-        echo -e "  ${RED}!!${NC} $1"
-    fi
-}
+# Counters
+TOTAL_COUNT=0
+PASS_COUNT=0
+FAIL_COUNT=0
+SKIP_COUNT=0
+KILL_COUNT=0
 
-log_skip() {
-    echo -e "  ${YELLOW}--${NC} $1 ${DIM}(skipped)${NC}"
-}
+# Fail-fast flag
+FAIL_FAST_TRIGGERED=false
 
-log_warning() {
-    echo -e "  ${YELLOW}!!${NC} $1"
-}
+# Render state
+RENDER_DRAWN=false
+DISPLAY_LINES=0
 
-# ---------------------------------------------------------------------------
-# run_job "name" command...
-# Synchronous: runs a command, captures output and result in TMP_DIR files.
-# Use with & at call site for parallel execution, without & for sequential.
-# ---------------------------------------------------------------------------
-run_job() {
-    local name="$1"
-    shift
-    local safe_name
-    safe_name=$(echo "$name" | sed 's/[^a-zA-Z0-9._-]/_/g')
+# E2E test groups (populated by discover_and_classify_tests)
+declare -A E2E_GROUPS=()
+declare -A E2E_GROUP_COUNTS=()
+declare -A GROUP_LABELS=(
+    [ssh_socks5]="SSH & SOCKS5"
+    [acl_security]="ACL & Security"
+    [api_dashboard]="API & Dashboard"
+    [integrations]="Integrations"
+    [catchall]="Catchall"
+)
 
-    # Store original name for display
-    echo "$name" > "$TMP_DIR/name.$safe_name"
+# Tool availability
+ACT_AVAILABLE=false
+PODMAN_AVAILABLE=false
+DOCKER_AVAILABLE=false
+LLVM_COV_AVAILABLE=false
+MSRV_AVAILABLE=false
+VHS_AVAILABLE=false
+VHS_VIA=""
+AUDIT_AVAILABLE=false
+DENY_AVAILABLE=false
+TRIVY_AVAILABLE=false
+TRIVY_VIA=""
+GRYPE_AVAILABLE=false
+GRYPE_VIA=""
 
-    if $DRY_RUN; then
-        log_start "$name: $*"
-        echo "0" > "$TMP_DIR/result.$safe_name"
-        echo "0" > "$TMP_DIR/time.$safe_name"
-        return 0
-    fi
-
-    log_start "$name"
-    local job_start=$SECONDS
-    if "$@" > "$TMP_DIR/log.$safe_name" 2>&1; then
-        echo "0" > "$TMP_DIR/result.$safe_name"
-    else
-        echo "1" > "$TMP_DIR/result.$safe_name"
-    fi
-    echo "$(( SECONDS - job_start ))" > "$TMP_DIR/time.$safe_name"
-}
-
-# ---------------------------------------------------------------------------
-# wait_phase "Phase N: Description"
-# Waits for all background jobs, collects results, reports
-# ---------------------------------------------------------------------------
-wait_phase() {
-    local phase_name="$1"
-    wait
-
-    local has_failures=false
-    for result_file in "$TMP_DIR"/result.*; do
-        [[ -f "$result_file" ]] || continue
-        local safe_name="${result_file##*/result.}"
-        local job_name="$safe_name"
-        if [[ -f "$TMP_DIR/name.$safe_name" ]]; then
-            job_name=$(cat "$TMP_DIR/name.$safe_name")
-        fi
-        local status
-        status=$(cat "$result_file")
-        local duration="?"
-        if [[ -f "$TMP_DIR/time.$safe_name" ]]; then
-            duration=$(cat "$TMP_DIR/time.$safe_name")
-        fi
-
-        JOB_COUNT=$(( JOB_COUNT + 1 ))
-        if [[ "$status" == "0" ]]; then
-            log_success "$job_name" "$duration"
-            PASS_COUNT=$(( PASS_COUNT + 1 ))
-        else
-            log_failure "$job_name" "$duration"
-            ERRORS+=("$phase_name > $job_name")
-            FAIL_COUNT=$(( FAIL_COUNT + 1 ))
-            has_failures=true
-        fi
+# ===========================================================================
+# Cleanup
+# ===========================================================================
+cleanup() {
+    # Kill any remaining background jobs
+    for pid in "${ACTIVE_PIDS[@]}"; do
+        kill -TERM "$pid" 2>/dev/null || true
     done
+    # Kill stray children (tickers, etc.)
+    jobs -p 2>/dev/null | xargs -r kill 2>/dev/null || true
+    wait 2>/dev/null || true
+    ACTIVE_PIDS=()
+    rm -rf "$TMP_DIR"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
-    # Clean up result/time/name files for next phase
-    rm -f "$TMP_DIR"/result.* "$TMP_DIR"/time.* "$TMP_DIR"/name.*
+# ===========================================================================
+# Tool Detection
+# ===========================================================================
+tool_label() {
+    if $1; then printf '%b' "${GREEN}ok${NC} $2"; else printf '%b' "${DIM}--${NC} ${DIM}$2${NC}"; fi
+}
 
-    if $has_failures; then
-        echo ""
-        log_warning "Some jobs failed in $phase_name (continuing...)"
+tool_label_via() {
+    local available="$1" name="$2" via="$3"
+    if $available; then
+        if [[ "$via" == "native" ]]; then
+            printf '%b' "${GREEN}ok${NC} $name"
+        else
+            printf '%b' "${GREEN}ok${NC} $name ${DIM}($via)${NC}"
+        fi
+    else
+        printf '%b' "${DIM}--${NC} ${DIM}$name${NC}"
     fi
 }
 
-# ---------------------------------------------------------------------------
-# show_job_log "name"
-# Shows the log for a failed job
-# ---------------------------------------------------------------------------
-show_job_log() {
-    local name="$1"
-    local safe_name
-    safe_name=$(echo "$name" | sed 's/[^a-zA-Z0-9._-]/_/g')
-    local log_file="$TMP_DIR/log.$safe_name"
-    if [[ -f "$log_file" ]] && [[ -s "$log_file" ]]; then
-        echo ""
-        echo -e "${DIM}--- Output: $name ---${NC}"
-        tail -30 "$log_file"
-        echo -e "${DIM}--- End ---${NC}"
-    fi
-}
-
-# ---------------------------------------------------------------------------
-# detect_tools — check which tools are available
-# ---------------------------------------------------------------------------
 detect_tools() {
     if ! $SKIP_ACT && command -v act &>/dev/null; then
         ACT_AVAILABLE=true
@@ -246,8 +208,7 @@ detect_tools() {
         DENY_AVAILABLE=true
     fi
 
-    # trivy: native → podman → docker
-    # A shell wrapper (created by `make setup`) counts as podman/docker, not native
+    # trivy: native -> podman -> docker
     if command -v trivy &>/dev/null; then
         local trivy_bin
         trivy_bin=$(command -v trivy)
@@ -266,8 +227,7 @@ detect_tools() {
         TRIVY_AVAILABLE=true; TRIVY_VIA="docker"
     fi
 
-    # grype: native → podman → docker
-    # A shell wrapper (created by `make setup`) counts as podman/docker, not native
+    # grype: native -> podman -> docker
     if command -v grype &>/dev/null; then
         local grype_bin
         grype_bin=$(command -v grype)
@@ -286,8 +246,7 @@ detect_tools() {
         GRYPE_AVAILABLE=true; GRYPE_VIA="docker"
     fi
 
-    # vhs: native → podman → docker
-    # A shell wrapper (created by `make setup`) counts as podman/docker, not native
+    # vhs: native -> podman -> docker
     if command -v vhs &>/dev/null; then
         local vhs_bin
         vhs_bin=$(command -v vhs)
@@ -317,7 +276,6 @@ detect_tools() {
         "$(tool_label_via $GRYPE_AVAILABLE grype "$GRYPE_VIA") " \
         "$(tool_label_via $VHS_AVAILABLE vhs "$VHS_VIA")"
 
-    # Version / branch / commit
     local ver branch commit dirty=""
     ver=$(sed -n 's/^version = "\(.*\)"/\1/p' "$PROJECT_ROOT/Cargo.toml" | head -1)
     branch=$(git -C "$PROJECT_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?")
@@ -326,9 +284,9 @@ detect_tools() {
     echo -e "${CYAN}[Build]${NC}  ${BOLD}${ver}${NC} | ${branch} @ ${commit}${dirty}"
 }
 
-# ---------------------------------------------------------------------------
-# Container-fallback commands for trivy and vhs
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# Container Commands (trivy, grype, vhs)
+# ===========================================================================
 trivy_command() {
     case "$TRIVY_VIA" in
         native) echo "trivy" ;;
@@ -337,8 +295,6 @@ trivy_command() {
     esac
 }
 
-# When trivy runs inside a container, the podman socket is mounted as
-# /var/run/docker.sock, so trivy must use the Docker API (--image-src docker).
 trivy_image_src() {
     case "$TRIVY_VIA" in
         native) echo "podman" ;;
@@ -354,7 +310,6 @@ grype_command() {
     esac
 }
 
-# When grype runs inside a container, images are accessed via Docker API
 grype_image_prefix() {
     case "$GRYPE_VIA" in
         native) echo "podman:" ;;
@@ -370,30 +325,26 @@ vhs_command() {
     esac
 }
 
-# ---------------------------------------------------------------------------
-# check_ignore_expiry — fail if any CVE ignore entry has expired
-# Parses "# expires: YYYY-MM-DD" comments in .grype.yaml and .trivyignore
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# CVE Ignore Expiry Check
+# ===========================================================================
 check_ignore_expiry() {
     local today has_expired=false
     today=$(date +%Y-%m-%d)
 
-    # Check .grype.yaml "# expires: YYYY-MM-DD" lines
     if [[ -f "$PROJECT_ROOT/.grype.yaml" ]]; then
         while IFS= read -r line; do
             local exp_date
             exp_date=$(echo "$line" | sed -n 's/.*#[[:space:]]*expires:[[:space:]]*\([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\).*/\1/p')
             if [[ -n "$exp_date" ]] && [[ "$today" > "$exp_date" || "$today" == "$exp_date" ]]; then
                 local cve=""
-                # Look for the vulnerability line above this expires comment
                 cve=$(grep -B5 "$exp_date" "$PROJECT_ROOT/.grype.yaml" | sed -n 's/.*vulnerability:[[:space:]]*\(CVE-[^ ]*\).*/\1/p' | tail -1)
-                log_failure "Expired CVE ignore: ${cve:-unknown} (expired $exp_date)"
+                echo -e "  ${RED}!!${NC} Expired CVE ignore: ${cve:-unknown} (expired $exp_date)"
                 has_expired=true
             fi
         done < "$PROJECT_ROOT/.grype.yaml"
     fi
 
-    # Check .trivyignore "expires: YYYY-MM-DD" comments
     if [[ -f "$PROJECT_ROOT/.trivyignore" ]]; then
         while IFS= read -r line; do
             local exp_date
@@ -404,209 +355,28 @@ check_ignore_expiry() {
                 if [[ -z "$cve" ]]; then
                     cve=$(sed -n "/$exp_date/{x;p;d;}; x" "$PROJECT_ROOT/.trivyignore" | sed -n 's/^\(CVE-[^ ]*\).*/\1/p')
                 fi
-                log_failure "Expired CVE ignore: ${cve:-unknown} (expired $exp_date)"
+                echo -e "  ${RED}!!${NC} Expired CVE ignore: ${cve:-unknown} (expired $exp_date)"
                 has_expired=true
             fi
         done < "$PROJECT_ROOT/.trivyignore"
     fi
 
     if $has_expired; then
-        log_warning "Remove expired entries from .grype.yaml / .trivyignore or update the expiry date"
+        echo -e "  ${YELLOW}!!${NC} Remove expired entries or update the expiry date"
         return 1
     fi
     return 0
 }
 
-# Display "ok name" or "-- name"
-tool_label() {
-    if $1; then echo -e "${GREEN}ok${NC} $2"; else echo -e "${DIM}--${NC} ${DIM}$2${NC}"; fi
-}
-
-# Display "ok name" or "ok name (podman)" or "-- name"
-tool_label_via() {
-    local available="$1" name="$2" via="$3"
-    if $available; then
-        if [[ "$via" == "native" ]]; then
-            echo -e "${GREEN}ok${NC} $name"
-        else
-            echo -e "${GREEN}ok${NC} $name ${DIM}($via)${NC}"
-        fi
-    else
-        echo -e "${DIM}--${NC} ${DIM}$name${NC}"
-    fi
-}
-
-plan_run() {
-    printf "  ${GREEN}%-3s${NC} %-40s %s\n" "RUN" "$1" "${2:-}"
-}
-plan_not() {
-    printf "  ${YELLOW}%-3s${NC} %-40s ${DIM}%s${NC}\n" "---" "$1" "$2"
-}
-plan_phase() {
-    echo -e "  ${BLUE}${BOLD}$1${NC}"
-}
-
-# ---------------------------------------------------------------------------
-# show_plan — display a summary of what will run and what won't
-# ---------------------------------------------------------------------------
-show_plan() {
-    local -a not_covered=()
-    local run_count=0
-
-    echo ""
-    echo -e "${BOLD}  Will run${NC}"
-    echo -e "  ${DIM}──────────────────────────────────────────────────${NC}"
-
-    # Phase 1
-    plan_phase "Phase 1: Lint + Security"
-    if $ACT_AVAILABLE; then
-        plan_run "CI Lint + Docker Lint (act)"
-    else
-        plan_run "Format check"
-    fi
-    run_count=$(( run_count + 1 ))
-    if $AUDIT_AVAILABLE; then plan_run "Security: audit"; run_count=$(( run_count + 1 )); else not_covered+=("Security: audit"); fi
-    if $DENY_AVAILABLE; then plan_run "Security: deny"; run_count=$(( run_count + 1 )); else not_covered+=("Security: deny"); fi
-    if $MSRV_AVAILABLE; then plan_run "MSRV (1.88)"; run_count=$(( run_count + 1 )); else not_covered+=("MSRV (1.88)"); fi
-
-    # Phase 2
-    plan_phase "Phase 2: Compilation"
-    if ! $ACT_AVAILABLE; then plan_run "Clippy"; run_count=$(( run_count + 1 )); fi
-    plan_run "Compile tests"
-    run_count=$(( run_count + 1 ))
-
-    # Phase 3
-    plan_phase "Phase 3: Tests"
-    plan_run "Unit tests"
-    run_count=$(( run_count + 1 ))
-    declare -A PLAN_GROUPS
-    while IFS= read -r test; do
-        local group
-        group=$(classify_test "$test")
-        PLAN_GROUPS[$group]=$(( ${PLAN_GROUPS[$group]:-0} + 1 ))
-    done < <(discover_e2e_tests)
-    declare -A PLAN_LABELS=([ssh_socks5]="SSH & SOCKS5" [acl_security]="ACL & Security" [api_dashboard]="API & Dashboard" [integrations]="Integrations" [catchall]="Catchall")
-    for group in ssh_socks5 acl_security api_dashboard integrations catchall; do
-        local count="${PLAN_GROUPS[$group]:-0}"
-        if (( count > 0 )); then
-            plan_run "E2E: ${PLAN_LABELS[$group]}" "${count} tests"
-            run_count=$(( run_count + 1 ))
-        fi
-    done
-
-    # Phase 4
-    plan_phase "Phase 4: Coverage + Browser + Extras"
-    if ! $SKIP_COVERAGE && $LLVM_COV_AVAILABLE; then
-        plan_run "Coverage (llvm-cov)"; run_count=$(( run_count + 1 ))
-    else
-        not_covered+=("Coverage")
-    fi
-    if ! $SKIP_BROWSER && $PODMAN_AVAILABLE; then
-        plan_run "E2E Browser + Screenshots"; run_count=$(( run_count + 1 ))
-    else
-        not_covered+=("E2E Browser + Screenshots")
-    fi
-    if $WITH_DOCKER && $PODMAN_AVAILABLE; then
-        if $TRIVY_AVAILABLE; then
-            local trivy_label="Docker Build + Scan"
-            [[ "$TRIVY_VIA" != "native" ]] && trivy_label="Docker Build + Scan (trivy via $TRIVY_VIA)"
-            plan_run "$trivy_label"; run_count=$(( run_count + 1 ))
-        else
-            plan_run "Docker Build"; run_count=$(( run_count + 1 ))
-            not_covered+=("Docker Scan")
-        fi
-    elif ! $WITH_DOCKER; then
-        not_covered+=("Docker Build + Scan      -> use: make validate-docker")
-    fi
-    if $WITH_DOCKER && $GRYPE_AVAILABLE; then
-        local grype_label="Docker Scan: Grype"
-        [[ "$GRYPE_VIA" != "native" ]] && grype_label="Docker Scan: Grype (via $GRYPE_VIA)"
-        plan_run "$grype_label"; run_count=$(( run_count + 1 ))
-    elif $WITH_DOCKER && ! $GRYPE_AVAILABLE; then
-        not_covered+=("Docker Scan: Grype")
-    fi
-    if $VHS_AVAILABLE; then
-        local tape_count=0
-        for tape in "$PROJECT_ROOT"/contrib/*.tape; do [[ -f "$tape" ]] && tape_count=$(( tape_count + 1 )); done
-        if (( tape_count > 0 )); then
-            local vhs_label="VHS"
-            [[ "$VHS_VIA" != "native" ]] && vhs_label="VHS (via $VHS_VIA)"
-            plan_run "$vhs_label" "${tape_count} tapes"; run_count=$(( run_count + 1 ))
-        fi
-    else
-        not_covered+=("VHS recordings")
-    fi
-
-    echo -e "  ${DIM}──────────────────────────────────────────────────${NC}"
-
-    # Not covered section
-    if (( ${#not_covered[@]} > 0 )); then
-        echo ""
-        echo -e "${BOLD}  Not covered${NC}"
-        echo -e "  ${DIM}──────────────────────────────────────────────────${NC}"
-        for entry in "${not_covered[@]}"; do
-            echo -e "  ${YELLOW}---${NC} ${entry}"
-        done
-        echo -e "  ${DIM}──────────────────────────────────────────────────${NC}"
-        # Show make setup hint only for missing tools (not for --with-docker hint)
-        local has_missing_tools=false
-        for entry in "${not_covered[@]}"; do
-            [[ "$entry" != *"-> use:"* ]] && has_missing_tools=true && break
-        done
-        if $has_missing_tools; then
-            echo -e "  ${YELLOW}Fix: ${BOLD}make setup${NC}${YELLOW} (auto-installs or creates podman/docker wrappers)${NC}"
-        fi
-    fi
-    echo ""
-}
-
-# ---------------------------------------------------------------------------
-# auto_install — install missing tools that can be installed locally
-# ---------------------------------------------------------------------------
-auto_install() {
-    if ! $SKIP_COVERAGE && ! $LLVM_COV_AVAILABLE; then
-        echo -e "  ${YELLOW}Installing llvm-tools-preview...${NC}"
-        if ! $DRY_RUN; then
-            rustup component add llvm-tools-preview 2>/dev/null || true
-        fi
-
-        echo -e "  ${YELLOW}Installing cargo-llvm-cov...${NC}"
-        if ! $DRY_RUN; then
-            if cargo install cargo-llvm-cov --locked 2>/dev/null; then
-                LLVM_COV_AVAILABLE=true
-            fi
-        fi
-        echo ""
-    fi
-}
-
-# ---------------------------------------------------------------------------
-# cleanup_act_containers — remove stale act containers from previous runs
-# ---------------------------------------------------------------------------
-cleanup_act_containers() {
-    if $PODMAN_AVAILABLE; then
-        local stale
-        stale=$(podman ps -aq --filter "name=act-" 2>/dev/null || true)
-        if [[ -n "$stale" ]]; then
-            echo -e "  ${DIM}Cleaning stale act containers...${NC}"
-            echo "$stale" | xargs -r podman rm -f 2>/dev/null || true
-        fi
-    fi
-}
-
-# ---------------------------------------------------------------------------
-# discover_e2e_tests — parse Cargo.toml for [[test]] entries starting with e2e_
-# Excludes e2e_browser_* (handled separately in Phase 4)
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# Test Discovery & Classification
+# ===========================================================================
 discover_e2e_tests() {
     sed -n '/^\[\[test\]\]/,/^$/p' "$PROJECT_ROOT/Cargo.toml" | \
         grep '^name' | sed 's/.*"\(.*\)"/\1/' | \
         grep '^e2e_' | grep -v '^e2e_browser'
 }
 
-# ---------------------------------------------------------------------------
-# classify_test — assign a test to a parallel group
-# ---------------------------------------------------------------------------
 classify_test() {
     local test="$1"
     case "$test" in
@@ -623,222 +393,791 @@ classify_test() {
     esac
 }
 
-# ---------------------------------------------------------------------------
-# Phase 1: Lint + Security (parallel)
-# ---------------------------------------------------------------------------
-phase1() {
-    log_phase "Phase 1" "Lint + Security"
-
-    if $ACT_AVAILABLE; then
-        cleanup_act_containers
-        # Act jobs run sequentially (shared container names) but parallel with other Phase 1 jobs
-        run_job "CI Lint (act)" bash -c 'make ci-lint && make ci-docker-lint' &
-    else
-        run_job "Format check" cargo fmt --all -- --check &
-    fi
-
-    if $AUDIT_AVAILABLE; then
-        run_job "Security: audit" cargo audit &
-    else
-        log_skip "cargo audit (not installed)"
-        SKIP_COUNT=$(( SKIP_COUNT + 1 ))
-    fi
-
-    if $DENY_AVAILABLE; then
-        run_job "Security: deny" cargo deny check &
-    else
-        log_skip "cargo deny (not installed)"
-        SKIP_COUNT=$(( SKIP_COUNT + 1 ))
-    fi
-
-    if $MSRV_AVAILABLE; then
-        run_job "MSRV (1.88)" cargo +1.88 check &
-    else
-        log_skip "MSRV check (toolchain 1.88 not installed)"
-        SKIP_COUNT=$(( SKIP_COUNT + 1 ))
-    fi
-
-    wait_phase "Phase 1: Lint + Security"
-}
-
-# ---------------------------------------------------------------------------
-# Phase 2: Compilation (sequential — builds the cache for Phase 3)
-# ---------------------------------------------------------------------------
-phase2() {
-    log_phase "Phase 2" "Compilation"
-
-    if ! $ACT_AVAILABLE; then
-        run_job "Clippy" cargo clippy --all-targets -- -D warnings
-    fi
-
-    run_job "Compile tests" cargo test --all-targets --no-run
-
-    # Collect all Phase 2 results (no bg jobs, but reuse wait_phase for reporting)
-    wait_phase "Phase 2: Compilation"
-}
-
-# ---------------------------------------------------------------------------
-# Phase 3: Tests in parallel groups (dynamically discovered)
-# ---------------------------------------------------------------------------
-phase3() {
-    log_phase "Phase 3" "Tests (parallel groups)"
-
-    # Discover and classify E2E tests
-    declare -A TEST_GROUPS
-    declare -A GROUP_LABELS
-    GROUP_LABELS=(
-        [ssh_socks5]="SSH & SOCKS5"
-        [acl_security]="ACL & Security"
-        [api_dashboard]="API & Dashboard"
-        [integrations]="Integrations"
-        [catchall]="Catchall"
-    )
-
+discover_and_classify_tests() {
     while IFS= read -r test; do
         local group
         group=$(classify_test "$test")
-        TEST_GROUPS[$group]+=" --test $test"
+        E2E_GROUPS[$group]+=" --test $test"
+        E2E_GROUP_COUNTS[$group]=$(( ${E2E_GROUP_COUNTS[$group]:-0} + 1 ))
     done < <(discover_e2e_tests)
-
-    # Show discovered groups
-    local discovered_count=0
-    for group in ssh_socks5 acl_security api_dashboard integrations catchall; do
-        if [[ -n "${TEST_GROUPS[$group]:-}" ]]; then
-            local tests="${TEST_GROUPS[$group]}"
-            local count
-            count=$(echo "$tests" | tr ' ' '\n' | grep -c '^--test$' || true)
-            echo -e "  ${DIM}${GROUP_LABELS[$group]}: ${count} tests${NC}"
-            discovered_count=$(( discovered_count + count ))
-        fi
-    done
-    echo -e "  ${DIM}Total discovered: ${discovered_count} E2E tests${NC}"
-    echo ""
-
-    # Launch unit tests
-    run_job "Unit tests" cargo test --lib --test unit &
-
-    # Launch E2E test groups
-    for group in ssh_socks5 acl_security api_dashboard integrations catchall; do
-        if [[ -n "${TEST_GROUPS[$group]:-}" ]]; then
-            # Build the cargo test command with all --test flags
-            local args="${TEST_GROUPS[$group]}"
-            # shellcheck disable=SC2086
-            run_job "E2E: ${GROUP_LABELS[$group]}" cargo test $args &
-        fi
-    done
-
-    wait_phase "Phase 3: Tests"
 }
 
-# ---------------------------------------------------------------------------
-# Phase 4: Extras (coverage, browser, vhs) — parallel
-# ---------------------------------------------------------------------------
-phase4() {
-    log_phase "Phase 4" "Coverage + Browser + Extras"
+# ===========================================================================
+# Lane & Task Registration
+# ===========================================================================
+register_lane() {
+    local id="$1" display="$2"
+    LANE_ORDER+=("$id")
+    LANE_DISPLAY["$id"]="$display"
+    LANE_TASKS["$id"]=""
+}
 
-    # Fail early if any CVE ignore entry has expired
-    if $WITH_DOCKER; then
-        if ! check_ignore_expiry; then
-            ERRORS+=("Phase 4: Extras > Expired CVE ignores")
-            FAIL_COUNT=$(( FAIL_COUNT + 1 ))
-            JOB_COUNT=$(( JOB_COUNT + 1 ))
+# ===========================================================================
+# Core Engine: run_task
+# ===========================================================================
+run_task() {
+    local name="$1" lane="$2"
+    shift 2
+    local safe_name
+    safe_name=$(echo "$name" | tr -cs 'a-zA-Z0-9._-' '_')
+
+    # Deduplicate safe_name (append counter if collision)
+    if [[ -n "${TASK_STATUS[$safe_name]:-}" ]]; then
+        local suffix=2
+        while [[ -n "${TASK_STATUS[${safe_name}_${suffix}]:-}" ]]; do
+            suffix=$(( suffix + 1 ))
+        done
+        safe_name="${safe_name}_${suffix}"
+    fi
+
+    # Register task
+    TASK_ORDER+=("$safe_name")
+    TASK_DISPLAY["$safe_name"]="$name"
+    TASK_LANE["$safe_name"]="$lane"
+    TASK_STATUS["$safe_name"]="running"
+    TASK_START["$safe_name"]=$SECONDS
+    TOTAL_COUNT=$(( TOTAL_COUNT + 1 ))
+
+    # Add to lane
+    if [[ -z "${LANE_TASKS[$lane]:-}" ]]; then
+        LANE_TASKS[$lane]="$safe_name"
+    else
+        LANE_TASKS[$lane]+=" $safe_name"
+    fi
+
+    # Plain mode: log start
+    if ! $PRETTY_MODE; then
+        echo -e "  ${DIM}>>${NC} $name ${DIM}[$lane]${NC}"
+    fi
+
+    # Launch in subshell: run command, then write exit code to sentinel file
+    ( "$@" > "$TMP_DIR/log.$safe_name" 2>&1; echo "$?" > "$TMP_DIR/exit.$safe_name" ) &
+    local pid=$!
+
+    PID_TO_TASK[$pid]="$safe_name"
+    TASK_PID["$safe_name"]=$pid
+    ACTIVE_PIDS+=("$pid")
+}
+
+skip_task() {
+    local name="$1"
+    SKIP_COUNT=$(( SKIP_COUNT + 1 ))
+    if ! $PRETTY_MODE; then
+        echo -e "  ${YELLOW}--${NC} $name ${DIM}(skipped)${NC}"
+    fi
+}
+
+# ===========================================================================
+# Core Engine: PID management
+# ===========================================================================
+remove_pid() {
+    local target="$1"
+    local -a new=()
+    for pid in "${ACTIVE_PIDS[@]}"; do
+        [[ "$pid" != "$target" ]] && new+=("$pid")
+    done
+    ACTIVE_PIDS=("${new[@]+"${new[@]}"}")
+}
+
+# ===========================================================================
+# Core Engine: handle task completion (by safe_name, not PID)
+# ===========================================================================
+complete_task() {
+    local safe_name="$1" rc="$2"
+
+    # Reap zombie and clean up PID tracking
+    local pid="${TASK_PID[$safe_name]:-}"
+    if [[ -n "$pid" ]]; then
+        remove_pid "$pid"
+        unset "PID_TO_TASK[$pid]"
+        wait "$pid" 2>/dev/null || true
+    fi
+
+    TASK_END["$safe_name"]=$SECONDS
+    TASK_EXIT["$safe_name"]="$rc"
+    local duration=$(( TASK_END["$safe_name"] - TASK_START["$safe_name"] ))
+    local name="${TASK_DISPLAY[$safe_name]}"
+
+    if (( rc == 0 )); then
+        TASK_STATUS["$safe_name"]="done"
+        PASS_COUNT=$(( PASS_COUNT + 1 ))
+        if ! $PRETTY_MODE; then
+            printf "  ${GREEN}%-2s${NC} %-38s ${DIM}%s${NC}\n" "ok" "$name" "${duration}s"
+        fi
+        # Launch dependent tasks
+        maybe_launch_dependents "$safe_name"
+    else
+        TASK_STATUS["$safe_name"]="failed"
+        FAIL_COUNT=$(( FAIL_COUNT + 1 ))
+        if ! $PRETTY_MODE; then
+            printf "  ${RED}%-2s${NC} %-38s ${DIM}%s${NC}\n" "!!" "$name" "${duration}s"
+        fi
+        FAIL_FAST_TRIGGERED=true
+    fi
+}
+
+# ===========================================================================
+# Core Engine: dependency chaining
+# ===========================================================================
+maybe_launch_dependents() {
+    local safe_name="$1"
+    local task_name="${TASK_DISPLAY[$safe_name]}"
+
+    case "$task_name" in
+        "Clippy")
+            run_task "Compile tests" "Cargo" cargo test --all-targets --no-run
+            ;;
+        "Compile tests")
+            # Launch test execution tasks (binaries are ready)
+            run_task "Unit tests" "Cargo" cargo test --lib --test unit
+            for group in ssh_socks5 acl_security api_dashboard integrations catchall; do
+                if [[ -n "${E2E_GROUPS[$group]:-}" ]]; then
+                    # shellcheck disable=SC2086
+                    run_task "E2E: ${GROUP_LABELS[$group]}" "Cargo" cargo test ${E2E_GROUPS[$group]}
+                fi
+            done
+            # Browser E2E (needs compiled binaries + Podman)
+            if ! $SKIP_BROWSER && $PODMAN_AVAILABLE; then
+                run_task "Browser E2E" "Browser" bash -c 'make test-e2e-browser && make test-screenshots'
+            fi
+            ;;
+        "Docker Build")
+            # Launch scan tasks (images are ready)
+            if $TRIVY_AVAILABLE; then
+                local trivy_cmd trivy_src
+                trivy_cmd=$(trivy_command)
+                trivy_src=$(trivy_image_src)
+                run_task "Trivy scan" "Docker" bash -c \
+                    "$trivy_cmd image --image-src $trivy_src --exit-code 1 --severity CRITICAL,HIGH,MEDIUM --ignorefile .trivyignore sks5:latest && $trivy_cmd image --image-src $trivy_src --exit-code 1 --severity CRITICAL,HIGH,MEDIUM --ignorefile .trivyignore sks5:scratch"
+            fi
+            if $GRYPE_AVAILABLE; then
+                local grype_cmd grype_prefix
+                grype_cmd=$(grype_command)
+                grype_prefix=$(grype_image_prefix)
+                run_task "Grype scan" "Docker" bash -c \
+                    "$grype_cmd ${grype_prefix}sks5:latest --fail-on medium -c .grype.yaml && $grype_cmd ${grype_prefix}sks5:scratch --fail-on medium -c .grype.yaml"
+            fi
+            ;;
+    esac
+}
+
+# ===========================================================================
+# Core Engine: fail-fast kill
+# ===========================================================================
+kill_all_active() {
+    # Mark remaining running tasks as killed
+    for pid in "${ACTIVE_PIDS[@]}"; do
+        local sn="${PID_TO_TASK[$pid]:-}"
+        if [[ -n "$sn" ]]; then
+            TASK_STATUS["$sn"]="killed"
+            TASK_END["$sn"]=$SECONDS
+            TASK_EXIT["$sn"]="killed"
+            KILL_COUNT=$(( KILL_COUNT + 1 ))
+        fi
+    done
+
+    # SIGTERM all
+    for pid in "${ACTIVE_PIDS[@]}"; do
+        kill -TERM "$pid" 2>/dev/null || true
+    done
+
+    # Grace period (up to 1s)
+    local attempts=0
+    while (( attempts < 5 )); do
+        local alive=false
+        for pid in "${ACTIVE_PIDS[@]}"; do
+            kill -0 "$pid" 2>/dev/null && alive=true && break
+        done
+        $alive || break
+        sleep 0.2
+        attempts=$(( attempts + 1 ))
+    done
+
+    # SIGKILL remaining
+    for pid in "${ACTIVE_PIDS[@]}"; do
+        kill -KILL "$pid" 2>/dev/null || true
+    done
+
+    wait 2>/dev/null || true
+    ACTIVE_PIDS=()
+}
+
+# ===========================================================================
+# Display: Pretty Mode Renderer
+# ===========================================================================
+compute_lane_line() {
+    local lane="$1"
+    local tasks_str="${LANE_TASKS[$lane]:-}"
+    local display="${LANE_DISPLAY[$lane]}"
+
+    # Empty lane (registered but no tasks yet)
+    if [[ -z "$tasks_str" ]]; then
+        printf "  ${DIM}[%-8s]${NC}  %b %-30s %4s" "$display" "$SYM_WAIT" "waiting" "-"
+        return
+    fi
+
+    local -a tasks=($tasks_str)
+    local running=0 done_count=0 failed=0 killed=0 total=${#tasks[@]}
+    local current_task="" lane_start="" lane_end=""
+    local has_failed_name=""
+
+    for t in "${tasks[@]}"; do
+        local st="${TASK_STATUS[$t]:-pending}"
+        local ts="${TASK_START[$t]:-}"
+        local te="${TASK_END[$t]:-}"
+        case "$st" in
+            running)
+                running=$((running + 1))
+                current_task="${TASK_DISPLAY[$t]}"
+                if [[ -z "$lane_start" ]] || (( ts < lane_start )); then
+                    lane_start="$ts"
+                fi
+                ;;
+            done)
+                done_count=$((done_count + 1))
+                if [[ -z "$lane_start" ]] || (( ts < lane_start )); then
+                    lane_start="$ts"
+                fi
+                if [[ -z "$lane_end" ]] || (( te > lane_end )); then
+                    lane_end="$te"
+                fi
+                ;;
+            failed)
+                failed=$((failed + 1))
+                has_failed_name="${TASK_DISPLAY[$t]}"
+                if [[ -z "$lane_start" ]] || (( ts < lane_start )); then
+                    lane_start="$ts"
+                fi
+                if [[ -n "$te" ]]; then
+                    if [[ -z "$lane_end" ]] || (( te > lane_end )); then
+                        lane_end="$te"
+                    fi
+                fi
+                ;;
+            killed)
+                killed=$((killed + 1))
+                ;;
+        esac
+    done
+
+    # Compute duration display
+    local dur_str="-"
+    if [[ -n "$lane_start" ]]; then
+        if (( running > 0 )); then
+            dur_str="$(( SECONDS - lane_start ))s"
+        elif [[ -n "$lane_end" ]]; then
+            dur_str="$(( lane_end - lane_start ))s"
         fi
     fi
 
-    local has_jobs=false
+    # Determine symbol and text
+    local symbol text
+    if (( failed > 0 )); then
+        symbol="$SYM_FAIL"
+        text="FAILED: $has_failed_name"
+    elif (( killed > 0 && running == 0 && done_count + killed == total )); then
+        symbol="$SYM_KILL"
+        text="killed"
+    elif (( running > 0 )); then
+        symbol="$(get_spinner)"
+        if (( running > 1 )); then
+            text="${done_count}/${total} done, ${running} running"
+        else
+            text="$current_task"
+        fi
+    elif (( done_count == total )); then
+        symbol="$SYM_OK"
+        if (( total == 1 )); then
+            text="${TASK_DISPLAY[${tasks[0]}]}"
+        else
+            text="${done_count}/${total} tasks"
+        fi
+    else
+        symbol="$SYM_WAIT"
+        text="waiting"
+    fi
+
+    printf "  [%-8s]  %b %-30s %4s" "$display" "$symbol" "$text" "$dur_str"
+}
+
+render() {
+    if ! $PRETTY_MODE; then return; fi
+
+    local elapsed=$(( SECONDS - TOTAL_START ))
+    local active_lanes=0 done_lanes=0
+
+    # Count active lanes
+    for lane in "${LANE_ORDER[@]}"; do
+        local tasks_str="${LANE_TASKS[$lane]:-}"
+        if [[ -z "$tasks_str" ]]; then continue; fi
+        local has_running=false all_done=true
+        for t in $tasks_str; do
+            case "${TASK_STATUS[$t]:-pending}" in
+                running) has_running=true; all_done=false ;;
+                done) ;;
+                *) all_done=false ;;
+            esac
+        done
+        if $has_running; then active_lanes=$((active_lanes + 1)); fi
+        if $all_done && [[ -n "$tasks_str" ]]; then done_lanes=$((done_lanes + 1)); fi
+    done
+
+    # Build output
+    local lines=()
+    lines+=("$(printf "  ${BOLD}sks5 Validation${NC} ─ %d lanes, %d tasks" "${#LANE_ORDER[@]}" "$TOTAL_COUNT")")
+    lines+=("  $(printf '%0.s─' {1..48})")
+
+    for lane in "${LANE_ORDER[@]}"; do
+        lines+=("$(compute_lane_line "$lane")")
+    done
+
+    lines+=("  $(printf '%0.s─' {1..48})")
+    lines+=("$(printf "  Progress: %d/%d done │ %d active │ %ds" "$PASS_COUNT" "$TOTAL_COUNT" "$active_lanes" "$elapsed")")
+
+    local total_lines=${#lines[@]}
+
+    # Move cursor up to overwrite previous render
+    if $RENDER_DRAWN; then
+        printf '\033[%dA' "$DISPLAY_LINES"
+    fi
+    RENDER_DRAWN=true
+    DISPLAY_LINES=$total_lines
+
+    # Print lines (clear each line first)
+    for line in "${lines[@]}"; do
+        printf '\033[2K%b\n' "$line"
+    done
+}
+
+# ===========================================================================
+# Display: Show Plan (pre-execution summary)
+# ===========================================================================
+show_plan() {
+    local run_count=0
+    local -a not_covered=()
+
+    echo ""
+    echo -e "${BOLD}  Will run${NC}"
+    echo -e "  ${DIM}──────────────────────────────────────────────────${NC}"
+
+    plan_run() { printf "  ${GREEN}%-3s${NC} %-40s %s\n" "RUN" "$1" "${2:-}"; run_count=$((run_count + 1)); }
+    plan_not() { not_covered+=("$1"); }
+
+    # Cargo Pipeline
+    echo -e "  ${BLUE}${BOLD}Cargo Pipeline${NC}"
+    if ! $ACT_AVAILABLE; then
+        plan_run "Clippy"
+    fi
+    plan_run "Compile tests"
+    plan_run "Unit tests"
+    for group in ssh_socks5 acl_security api_dashboard integrations catchall; do
+        local count="${E2E_GROUP_COUNTS[$group]:-0}"
+        if (( count > 0 )); then
+            plan_run "E2E: ${GROUP_LABELS[$group]}" "${count} tests"
+        fi
+    done
+
+    # Security
+    echo -e "  ${BLUE}${BOLD}Security${NC}"
+    if $AUDIT_AVAILABLE; then plan_run "cargo audit"; else plan_not "cargo audit"; fi
+    if $DENY_AVAILABLE; then plan_run "cargo deny"; else plan_not "cargo deny"; fi
+
+    # MSRV
+    if $MSRV_AVAILABLE; then
+        echo -e "  ${BLUE}${BOLD}MSRV${NC}"
+        plan_run "MSRV (1.88)" "CARGO_TARGET_DIR=target-msrv"
+    else
+        plan_not "MSRV (1.88)"
+    fi
+
+    # Coverage
+    if ! $SKIP_COVERAGE && $LLVM_COV_AVAILABLE; then
+        echo -e "  ${BLUE}${BOLD}Coverage${NC}"
+        plan_run "llvm-cov" "CARGO_TARGET_DIR=target-cov"
+    else
+        plan_not "Coverage"
+    fi
+
+    # Docker
+    if $WITH_DOCKER && $PODMAN_AVAILABLE; then
+        echo -e "  ${BLUE}${BOLD}Docker${NC}"
+        plan_run "Docker Build"
+        if $TRIVY_AVAILABLE; then plan_run "Trivy scan ($TRIVY_VIA)"; else plan_not "Trivy scan"; fi
+        if $GRYPE_AVAILABLE; then plan_run "Grype scan ($GRYPE_VIA)"; else plan_not "Grype scan"; fi
+    elif ! $WITH_DOCKER; then
+        not_covered+=("Docker Build + Scan      -> use: make validate-docker")
+    fi
+
+    # Browser
+    if ! $SKIP_BROWSER && $PODMAN_AVAILABLE; then
+        echo -e "  ${BLUE}${BOLD}Browser${NC}"
+        plan_run "Browser E2E + Screenshots"
+    else
+        plan_not "Browser E2E + Screenshots"
+    fi
+
+    # CI / Act
+    if $ACT_AVAILABLE; then
+        echo -e "  ${BLUE}${BOLD}CI (act)${NC}"
+        plan_run "CI Lint + Docker Lint"
+    fi
+
+    # VHS
+    if $VHS_AVAILABLE; then
+        local tape_count=0
+        for tape in "$PROJECT_ROOT"/contrib/*.tape; do [[ -f "$tape" ]] && tape_count=$((tape_count + 1)); done
+        if (( tape_count > 0 )); then
+            echo -e "  ${BLUE}${BOLD}VHS${NC}"
+            plan_run "VHS tapes ($VHS_VIA)" "${tape_count} tapes"
+        fi
+    else
+        plan_not "VHS recordings"
+    fi
+
+    echo -e "  ${DIM}──────────────────────────────────────────────────${NC}"
+
+    # Not covered
+    if (( ${#not_covered[@]} > 0 )); then
+        echo ""
+        echo -e "${BOLD}  Not covered${NC}"
+        echo -e "  ${DIM}──────────────────────────────────────────────────${NC}"
+        for entry in "${not_covered[@]}"; do
+            echo -e "  ${YELLOW}---${NC} ${entry}"
+        done
+        echo -e "  ${DIM}──────────────────────────────────────────────────${NC}"
+        local has_missing_tools=false
+        for entry in "${not_covered[@]}"; do
+            [[ "$entry" != *"-> use:"* ]] && has_missing_tools=true && break
+        done
+        if $has_missing_tools; then
+            echo -e "  ${YELLOW}Fix: ${BOLD}make setup${NC}${YELLOW} (auto-installs or creates podman/docker wrappers)${NC}"
+        fi
+    fi
+    echo ""
+}
+
+# ===========================================================================
+# Stale Container Cleanup
+# ===========================================================================
+cleanup_act_containers() {
+    if $PODMAN_AVAILABLE; then
+        local stale
+        stale=$(podman ps -aq --filter "name=act-" 2>/dev/null || true)
+        if [[ -n "$stale" ]]; then
+            echo -e "  ${DIM}Cleaning stale act containers...${NC}"
+            echo "$stale" | xargs -r podman rm -f 2>/dev/null || true
+        fi
+    fi
+}
+
+# ===========================================================================
+# Auto-install missing tools
+# ===========================================================================
+auto_install() {
+    if ! $SKIP_COVERAGE && ! $LLVM_COV_AVAILABLE; then
+        echo -e "  ${YELLOW}Installing llvm-tools-preview...${NC}"
+        if ! $DRY_RUN; then
+            rustup component add llvm-tools-preview 2>/dev/null || true
+        fi
+        echo -e "  ${YELLOW}Installing cargo-llvm-cov...${NC}"
+        if ! $DRY_RUN; then
+            if cargo install cargo-llvm-cov --locked 2>/dev/null; then
+                LLVM_COV_AVAILABLE=true
+            fi
+        fi
+        echo ""
+    fi
+}
+
+# ===========================================================================
+# Register all lanes based on detected tools
+# ===========================================================================
+register_lanes() {
+    # Cargo lane always exists
+    register_lane "Cargo" "Cargo"
+
+    if $AUDIT_AVAILABLE || $DENY_AVAILABLE; then
+        register_lane "Security" "Security"
+    fi
+
+    if $MSRV_AVAILABLE; then
+        register_lane "MSRV" "MSRV"
+    fi
 
     if ! $SKIP_COVERAGE && $LLVM_COV_AVAILABLE; then
-        run_job "Coverage" cargo llvm-cov --lcov --output-path lcov.info --lib --test unit &
-        has_jobs=true
-    else
-        if $SKIP_COVERAGE; then
-            log_skip "Coverage (--skip-coverage)"
-        else
-            log_skip "Coverage (cargo-llvm-cov not available)"
-        fi
-        SKIP_COUNT=$(( SKIP_COUNT + 1 ))
-    fi
-
-    if ! $SKIP_BROWSER && $PODMAN_AVAILABLE; then
-        # Run browser + screenshots sequentially in one job to avoid
-        # Chrome container cleanup race (both use --filter "name=sks5-chrome")
-        run_job "E2E Browser + Screenshots" bash -c 'make test-e2e-browser && make test-screenshots' &
-        has_jobs=true
-    else
-        if $SKIP_BROWSER; then
-            log_skip "E2E Browser + Screenshots (--skip-browser)"
-        else
-            log_skip "E2E Browser + Screenshots (podman not available)"
-        fi
-        SKIP_COUNT=$(( SKIP_COUNT + 1 ))
+        register_lane "Coverage" "Coverage"
     fi
 
     if $WITH_DOCKER && $PODMAN_AVAILABLE; then
-        if $TRIVY_AVAILABLE; then
-            local trivy_cmd trivy_src
-            trivy_cmd=$(trivy_command)
-            trivy_src=$(trivy_image_src)
-            run_job "Docker Build + Scan ($TRIVY_VIA)" bash -c \
-                "make docker-build-all && $trivy_cmd image --image-src $trivy_src --exit-code 1 --severity CRITICAL,HIGH,MEDIUM --ignorefile .trivyignore sks5:latest && $trivy_cmd image --image-src $trivy_src --exit-code 1 --severity CRITICAL,HIGH,MEDIUM --ignorefile .trivyignore sks5:scratch" &
-        else
-            run_job "Docker Build" make docker-build-all &
-            log_skip "Docker Scan: Trivy (not available)"
-            SKIP_COUNT=$(( SKIP_COUNT + 1 ))
-        fi
-        has_jobs=true
-    elif $WITH_DOCKER; then
-        log_skip "Docker Build (podman not available)"
-        SKIP_COUNT=$(( SKIP_COUNT + 1 ))
+        register_lane "Docker" "Docker"
     fi
 
-    if $WITH_DOCKER && $GRYPE_AVAILABLE; then
-        local grype_cmd grype_prefix
-        grype_cmd=$(grype_command)
-        grype_prefix=$(grype_image_prefix)
-        run_job "Docker Scan: Grype ($GRYPE_VIA)" bash -c \
-            "$grype_cmd ${grype_prefix}sks5:latest --fail-on medium -c .grype.yaml && $grype_cmd ${grype_prefix}sks5:scratch --fail-on medium -c .grype.yaml" &
-        has_jobs=true
-    elif $WITH_DOCKER && ! $GRYPE_AVAILABLE; then
-        log_skip "Docker Scan: Grype (not available)"
-        SKIP_COUNT=$(( SKIP_COUNT + 1 ))
+    if ! $SKIP_BROWSER && $PODMAN_AVAILABLE; then
+        register_lane "Browser" "Browser"
+    fi
+
+    if $ACT_AVAILABLE; then
+        register_lane "CI" "CI"
     fi
 
     if $VHS_AVAILABLE; then
+        local tape_count=0
+        for tape in "$PROJECT_ROOT"/contrib/*.tape; do [[ -f "$tape" ]] && tape_count=$((tape_count + 1)); done
+        if (( tape_count > 0 )); then
+            register_lane "VHS" "VHS"
+        fi
+    fi
+}
+
+# ===========================================================================
+# Gate: synchronous fast checks (abort immediately on failure)
+# ===========================================================================
+run_gate() {
+    echo -e "${BLUE}${BOLD}[Gate]${NC} ${BOLD}Fast checks${NC}"
+
+    local gate_start=$SECONDS
+    if ! cargo fmt --all -- --check > "$TMP_DIR/log.fmt_check" 2>&1; then
+        local dur=$(( SECONDS - gate_start ))
+        printf "  ${RED}%-2s${NC} %-38s ${DIM}%s${NC}\n" "!!" "fmt --check" "${dur}s"
+        echo ""
+        echo -e "${RED}Code is not formatted. Run: ${BOLD}cargo fmt${NC}"
+        echo -e "${DIM}--- Output ---${NC}"
+        tail -20 "$TMP_DIR/log.fmt_check"
+        echo -e "${DIM}--- End ---${NC}"
+        return 1
+    fi
+    local dur=$(( SECONDS - gate_start ))
+    printf "  ${GREEN}%-2s${NC} %-38s ${DIM}%s${NC}\n" "ok" "fmt --check" "${dur}s"
+
+    # CVE expiry check (only with --with-docker)
+    if $WITH_DOCKER; then
+        if ! check_ignore_expiry; then
+            return 1
+        fi
+    fi
+
+    echo ""
+    return 0
+}
+
+# ===========================================================================
+# Launch initial tasks (no dependencies)
+# ===========================================================================
+launch_initial_tasks() {
+    # --- Cargo Pipeline ---
+    if $ACT_AVAILABLE; then
+        # Act handles linting; start compilation directly
+        run_task "Compile tests" "Cargo" cargo test --all-targets --no-run
+    else
+        # Local lint first, then compile (chained via maybe_launch_dependents)
+        run_task "Clippy" "Cargo" cargo clippy --all-targets -- -D warnings
+    fi
+
+    # --- Security ---
+    if $AUDIT_AVAILABLE; then
+        run_task "cargo audit" "Security" cargo audit
+    else
+        skip_task "cargo audit (not installed)"
+    fi
+    if $DENY_AVAILABLE; then
+        run_task "cargo deny" "Security" cargo deny check
+    else
+        skip_task "cargo deny (not installed)"
+    fi
+
+    # --- MSRV (own target dir for true parallelism) ---
+    if $MSRV_AVAILABLE; then
+        run_task "MSRV (1.88)" "MSRV" env CARGO_TARGET_DIR=target-msrv cargo +1.88 check
+    else
+        skip_task "MSRV (toolchain 1.88 not installed)"
+    fi
+
+    # --- Coverage (own target dir for true parallelism) ---
+    if ! $SKIP_COVERAGE && $LLVM_COV_AVAILABLE; then
+        run_task "Coverage" "Coverage" env CARGO_TARGET_DIR=target-cov cargo llvm-cov --lcov --output-path lcov.info --lib --test unit
+    else
+        if $SKIP_COVERAGE; then
+            skip_task "Coverage (--skip-coverage)"
+        elif ! $LLVM_COV_AVAILABLE; then
+            skip_task "Coverage (cargo-llvm-cov not available)"
+        fi
+    fi
+
+    # --- Docker Pipeline ---
+    if $WITH_DOCKER && $PODMAN_AVAILABLE; then
+        run_task "Docker Build" "Docker" make docker-build-all
+    elif $WITH_DOCKER; then
+        skip_task "Docker Build (podman not available)"
+    fi
+
+    # --- CI / Act ---
+    if $ACT_AVAILABLE; then
+        cleanup_act_containers
+        run_task "CI Lint (act)" "CI" bash -c 'make ci-lint && make ci-docker-lint'
+    fi
+
+    # --- VHS ---
+    if $VHS_AVAILABLE; then
         local vhs_cmd
         vhs_cmd=$(vhs_command)
-        local tape_count=0
         for tape in "$PROJECT_ROOT"/contrib/*.tape; do
             if [[ -f "$tape" ]]; then
                 local tape_name tape_path
                 tape_name=$(basename "$tape" .tape)
-                # Container VHS mounts $PWD:/vhs — pass relative path
                 if [[ "$VHS_VIA" == "native" ]]; then
                     tape_path="$tape"
                 else
                     tape_path="${tape#"$PROJECT_ROOT"/}"
                 fi
-                run_job "VHS: $tape_name ($VHS_VIA)" $vhs_cmd "$tape_path" &
-                has_jobs=true
-                tape_count=$(( tape_count + 1 ))
+                # shellcheck disable=SC2086
+                run_task "VHS: $tape_name" "VHS" $vhs_cmd "$tape_path"
             fi
         done
-        if [[ $tape_count -eq 0 ]]; then
-            log_skip "VHS (no .tape files in contrib/)"
-            SKIP_COUNT=$(( SKIP_COUNT + 1 ))
-        fi
-    else
-        log_skip "VHS (vhs not installed)"
-        SKIP_COUNT=$(( SKIP_COUNT + 1 ))
     fi
 
-    if $has_jobs; then
-        wait_phase "Phase 4: Extras"
+    # --- Browser E2E: launched later via maybe_launch_dependents("Compile tests") ---
+    if $SKIP_BROWSER; then
+        skip_task "Browser E2E (--skip-browser)"
+    elif ! $PODMAN_AVAILABLE; then
+        skip_task "Browser E2E (podman not available)"
     fi
 }
 
-# ---------------------------------------------------------------------------
-# summary — final report
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# Reaper Loop: poll sentinel exit files for task completions
+# ===========================================================================
+reap_loop() {
+    $PRETTY_MODE && render
+
+    while (( ${#ACTIVE_PIDS[@]} > 0 )); do
+        local found_completion=false
+
+        # Scan all running tasks for sentinel exit files
+        # Note: TASK_ORDER may grow during this loop (via maybe_launch_dependents),
+        # but for-in expands the array at loop start, so new tasks are picked up
+        # on the next iteration of the outer while loop.
+        for t in "${TASK_ORDER[@]}"; do
+            [[ "${TASK_STATUS[$t]}" != "running" ]] && continue
+
+            local exit_file="$TMP_DIR/exit.$t"
+            if [[ -f "$exit_file" ]]; then
+                local rc
+                rc=$(<"$exit_file")
+
+                complete_task "$t" "$rc"
+                found_completion=true
+
+                $PRETTY_MODE && render
+
+                if $FAIL_FAST_TRIGGERED; then
+                    kill_all_active
+                    $PRETTY_MODE && render
+                    return
+                fi
+            fi
+        done
+
+        # Refresh display / wait for next poll cycle
+        $PRETTY_MODE && render
+
+        if ! $found_completion; then
+            sleep 0.3
+        fi
+    done
+}
+
+# ===========================================================================
+# Show Task Log (for failed tasks)
+# ===========================================================================
+show_task_log() {
+    local safe_name="$1"
+    local name="${TASK_DISPLAY[$safe_name]}"
+    local log_file="$TMP_DIR/log.$safe_name"
+    if [[ -f "$log_file" ]] && [[ -s "$log_file" ]]; then
+        echo ""
+        echo -e "${DIM}--- Output: $name ---${NC}"
+        tail -50 "$log_file"
+        echo -e "${DIM}--- End ---${NC}"
+    fi
+}
+
+# ===========================================================================
+# Summary: Gantt Chart
+# ===========================================================================
+print_gantt() {
+    local total_time=$(( SECONDS - TOTAL_START ))
+    (( total_time < 1 )) && total_time=1
+    local bar_width=35
+
+    echo -e "  ${BOLD}Timeline${NC} ${DIM}(1 char ≈ $(( (total_time + bar_width - 1) / bar_width ))s)${NC}"
+    echo ""
+
+    for lane in "${LANE_ORDER[@]}"; do
+        local tasks_str="${LANE_TASKS[$lane]:-}"
+        [[ -z "$tasks_str" ]] && continue
+
+        local -a tasks=($tasks_str)
+        local lane_min=$total_time lane_max=0
+
+        # Compute lane time span
+        for t in "${tasks[@]}"; do
+            local ts=$(( ${TASK_START[$t]:-$SECONDS} - TOTAL_START ))
+            local te=$(( ${TASK_END[$t]:-$SECONDS} - TOTAL_START ))
+            (( ts < lane_min )) && lane_min=$ts
+            (( te > lane_max )) && lane_max=$te
+        done
+        local lane_dur=$(( lane_max - lane_min ))
+
+        # Lane header bar
+        local bar="" lane_color="$GREEN"
+        for t in "${tasks[@]}"; do
+            [[ "${TASK_STATUS[$t]}" == "failed" ]] && lane_color="$RED" && break
+        done
+        local ls=$(( lane_min * bar_width / total_time ))
+        local le=$(( lane_max * bar_width / total_time ))
+        (( le <= ls )) && le=$(( ls + 1 ))
+        (( le > bar_width )) && le=$bar_width
+        for (( i = 0; i < bar_width; i++ )); do
+            if (( i >= ls && i < le )); then
+                bar+="${lane_color}█${NC}"
+            else
+                bar+="░"
+            fi
+        done
+        printf "  ${BOLD}%-22s${NC} %b %3ds\n" "${LANE_DISPLAY[$lane]}" "$bar" "$lane_dur"
+
+        # Individual tasks (indented)
+        for t in "${tasks[@]}"; do
+            local name="${TASK_DISPLAY[$t]}"
+            local ts=$(( ${TASK_START[$t]:-$SECONDS} - TOTAL_START ))
+            local te=$(( ${TASK_END[$t]:-$SECONDS} - TOTAL_START ))
+            local d=$(( te - ts ))
+
+            local tbar="" tcolor="$GREEN" tfill="█"
+            case "${TASK_STATUS[$t]}" in
+                failed) tcolor="$RED" ;;
+                killed) tcolor="$DIM" ;;
+            esac
+
+            local tls=$(( ts * bar_width / total_time ))
+            local tle=$(( te * bar_width / total_time ))
+            (( tle <= tls )) && tle=$(( tls + 1 ))
+            (( tle > bar_width )) && tle=$bar_width
+            for (( i = 0; i < bar_width; i++ )); do
+                if (( i >= tls && i < tle )); then
+                    tbar+="${tcolor}${tfill}${NC}"
+                else
+                    tbar+="░"
+                fi
+            done
+            printf "    %-20s %b %3ds\n" "$name" "$tbar" "$d"
+        done
+    done
+}
+
+# ===========================================================================
+# Summary
+# ===========================================================================
 summary() {
     local total_time=$(( SECONDS - TOTAL_START ))
     local minutes=$(( total_time / 60 ))
@@ -850,44 +1189,85 @@ summary() {
         time_str="${seconds}s"
     fi
 
+    # Compute CPU time (sum of all task durations)
+    local cpu_time=0
+    for t in "${TASK_ORDER[@]}"; do
+        if [[ "${TASK_STATUS[$t]}" == "done" ]] || [[ "${TASK_STATUS[$t]}" == "failed" ]]; then
+            local d=$(( ${TASK_END[$t]} - ${TASK_START[$t]} ))
+            cpu_time=$(( cpu_time + d ))
+        fi
+    done
+    local speedup="1.0"
+    if (( total_time > 0 && cpu_time > 0 )); then
+        speedup=$(awk "BEGIN { printf \"%.1f\", $cpu_time / $total_time }")
+    fi
+
     echo ""
     echo -e "${BOLD}=========================================${NC}"
-    if [[ ${#ERRORS[@]} -eq 0 ]]; then
-        echo -e "${GREEN}${BOLD}  ok All ${JOB_COUNT} checks passed (${time_str})${NC}"
+
+    if [[ $FAIL_COUNT -eq 0 ]]; then
+        echo -e "${GREEN}${BOLD}  ✓ All ${PASS_COUNT} checks passed (${time_str})${NC}"
         if (( SKIP_COUNT > 0 )); then
             echo -e "${DIM}  (${SKIP_COUNT} skipped)${NC}"
         fi
     else
-        echo -e "${RED}${BOLD}  !! ${FAIL_COUNT}/${JOB_COUNT} checks failed (${time_str})${NC}"
+        echo -e "${RED}${BOLD}  ✗ ${FAIL_COUNT}/${TOTAL_COUNT} checks failed (${time_str})${NC}"
         if (( SKIP_COUNT > 0 )); then
-            echo -e "${DIM}  (${SKIP_COUNT} skipped)${NC}"
+            echo -e "${DIM}  (${SKIP_COUNT} skipped, ${KILL_COUNT} killed)${NC}"
         fi
-        echo ""
-        echo -e "${RED}  Failures:${NC}"
-        for err in "${ERRORS[@]}"; do
-            echo -e "  ${RED}!!${NC} $err"
-        done
-
-        # Show logs for failed jobs
-        for err in "${ERRORS[@]}"; do
-            local job_name="${err##*> }"
-            show_job_log "$job_name"
-        done
     fi
+
+    echo -e "${DIM}  Wall: ${time_str} │ CPU: ${cpu_time}s │ Speedup: ${speedup}x${NC}"
     echo -e "${BOLD}=========================================${NC}"
     echo ""
 
-    if [[ ${#ERRORS[@]} -gt 0 ]]; then
+    # Gantt chart
+    if (( ${#TASK_ORDER[@]} > 0 )); then
+        print_gantt
+    fi
+
+    echo ""
+    echo -e "${BOLD}=========================================${NC}"
+
+    # Show failure details
+    if (( FAIL_COUNT > 0 )); then
+        echo ""
+        echo -e "${RED}  Failures:${NC}"
+        for t in "${TASK_ORDER[@]}"; do
+            if [[ "${TASK_STATUS[$t]}" == "failed" ]]; then
+                local name="${TASK_DISPLAY[$t]}"
+                local lane="${TASK_LANE[$t]}"
+                echo -e "  ${RED}✗${NC} ${lane} > ${name}"
+            fi
+        done
+
+        # Show logs for failed tasks
+        for t in "${TASK_ORDER[@]}"; do
+            if [[ "${TASK_STATUS[$t]}" == "failed" ]]; then
+                show_task_log "$t"
+            fi
+        done
+
+        echo ""
+        echo -e "${BOLD}=========================================${NC}"
+        echo ""
+    fi
+
+    if (( FAIL_COUNT > 0 )); then
         return 1
     fi
     return 0
 }
 
-# ---------------------------------------------------------------------------
-# main
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# Main
+# ===========================================================================
 main() {
-    log_header "sks5 Comprehensive Validation"
+    echo ""
+    echo -e "${BOLD}=========================================${NC}"
+    echo -e "${BOLD}  sks5 Comprehensive Validation${NC}"
+    echo -e "${BOLD}=========================================${NC}"
+    echo ""
 
     if $DRY_RUN; then
         echo -e "${YELLOW}[DRY RUN] Showing planned execution without running commands${NC}"
@@ -895,13 +1275,34 @@ main() {
     fi
 
     detect_tools
+    discover_and_classify_tests
     show_plan
+
+    if $DRY_RUN; then
+        exit 0
+    fi
+
     auto_install
 
-    phase1
-    phase2
-    phase3
-    phase4
+    # Gate: fast synchronous checks
+    if ! run_gate; then
+        exit 1
+    fi
+
+    # Register lanes and launch parallel work
+    register_lanes
+
+    # Pretty mode: print header for dashboard
+    if $PRETTY_MODE; then
+        echo -e "${BLUE}${BOLD}[Running]${NC} ${BOLD}All lanes in parallel${NC}"
+        echo ""
+    else
+        echo -e "${BLUE}${BOLD}[Running]${NC} ${BOLD}All lanes in parallel${NC}"
+        echo ""
+    fi
+
+    launch_initial_tasks
+    reap_loop
     summary
 }
 

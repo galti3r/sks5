@@ -3,7 +3,7 @@ SHELL := /bin/bash
 # Detect host architecture for musl target
 MUSL_TARGET := $(shell uname -m | sed 's/x86_64/x86_64-unknown-linux-musl/' | sed 's/aarch64/aarch64-unknown-linux-musl/')
 
-.PHONY: build build-debug build-static test test-unit test-e2e test-e2e-all test-e2e-browser test-screenshots test-perf test-e2e-podman test-compose test-compose-validate coverage run fmt clippy check docker-build docker-build-scratch docker-build-all docker-build-cross docker-build-multiarch docker-build-package docker-scan docker-build-scan docker-run docker-run-scratch compose-up compose-down hash-password clean security-scan test-all quick-start init completions manpage bench changelog install-act install-hooks ensure-podman-socket ci-lint ci-test ci-docker-lint ci-e2e ci validate validate-docker validate-ci validate-msrv validate-coverage validate-security setup
+.PHONY: build build-debug build-static test test-unit test-e2e test-e2e-all test-e2e-browser test-screenshots test-perf test-e2e-podman test-compose test-compose-validate coverage run fmt clippy check docker-build docker-build-scratch docker-build-all docker-build-cross docker-build-multiarch docker-build-package docker-scan docker-build-scan docker-run docker-run-scratch compose-up compose-down hash-password clean security-scan test-all quick-start init completions manpage bench changelog install-act install-hooks ensure-podman-socket ci-lint ci-test ci-docker-lint ci-e2e ci validate validate-docker validate-plain clean-validation validate-ci validate-msrv validate-coverage validate-security setup
 
 build:
 	cargo build --release
@@ -280,27 +280,34 @@ ci-lint: ensure-podman-socket
 		act push -j lint \
 		--container-daemon-socket "$${XDG_RUNTIME_DIR}/podman/podman.sock" \
 		--eventpath .github/act-event.json \
-		--env RUST_BACKTRACE=1
+		--bind \
+		--env RUST_BACKTRACE=1 \
+		--env CARGO_TARGET_DIR=/tmp/act-target
 
 ci-test: ensure-podman-socket
 	DOCKER_HOST="unix://$${XDG_RUNTIME_DIR}/podman/podman.sock" \
 		act push -j test \
 		--container-daemon-socket "$${XDG_RUNTIME_DIR}/podman/podman.sock" \
 		--eventpath .github/act-event.json \
-		--env RUST_BACKTRACE=1
+		--bind \
+		--env RUST_BACKTRACE=1 \
+		--env CARGO_TARGET_DIR=/tmp/act-target
 
 ci-docker-lint: ensure-podman-socket
 	DOCKER_HOST="unix://$${XDG_RUNTIME_DIR}/podman/podman.sock" \
 		act push -j docker-lint \
 		--container-daemon-socket "$${XDG_RUNTIME_DIR}/podman/podman.sock" \
-		--eventpath .github/act-event.json
+		--eventpath .github/act-event.json \
+		--bind
 
 ci-e2e: ensure-podman-socket
 	DOCKER_HOST="unix://$${XDG_RUNTIME_DIR}/podman/podman.sock" \
 		act push -j e2e-tests \
 		--container-daemon-socket "$${XDG_RUNTIME_DIR}/podman/podman.sock" \
 		--eventpath .github/act-event.json \
-		--env RUST_BACKTRACE=1
+		--bind \
+		--env RUST_BACKTRACE=1 \
+		--env CARGO_TARGET_DIR=/tmp/act-target
 
 ci: ci-lint ci-test ci-e2e ci-docker-lint
 	@echo "Local CI passed (lint + test + e2e + docker-lint)"
@@ -310,6 +317,14 @@ validate:
 
 validate-docker:
 	@./scripts/validate.sh --with-docker
+
+validate-plain:
+	@./scripts/validate.sh --plain
+
+clean-validation:
+	@echo "Removing parallel validation target dirs..."
+	rm -rf target-cov target-msrv
+	@echo "Done."
 
 # Sequential CI reproduction (kept for backwards compatibility)
 validate-ci: ci-lint ci-test ci-e2e ci-docker-lint

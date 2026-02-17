@@ -1,5 +1,7 @@
 # Build artifacts
 /target
+/target-cov
+/target-msrv
 
 # Editor / IDE
 *.swp
