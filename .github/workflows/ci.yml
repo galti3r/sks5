@@ -63,6 +63,8 @@ jobs:
               - 'Containerfile.cross'
               - 'Containerfile.alpine'
               - 'Containerfile.package'
+              - '.trivyignore'
+              - '.grype.yaml'
             docs:
               - '*.md'
               - 'docs/**'
@@ -739,8 +741,8 @@ jobs:
   # ===========================================================================
   release:
     name: GitHub Release
-    needs: [cross-build, extras, sbom, security]
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [gate, cross-build, extras, sbom]
+    if: startsWith(github.ref, 'refs/tags/v') && needs.gate.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -829,8 +831,8 @@ jobs:
   # ===========================================================================
   provenance:
     name: SLSA Provenance
-    needs: [cross-build]
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [gate, cross-build]
+    if: startsWith(github.ref, 'refs/tags/v') && needs.gate.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -949,6 +951,41 @@ jobs:
           tags: sks5:scratch-scan
           cache-from: type=gha,scope=docker
 
+      - name: Check CVE ignore expiry
+        run: |
+          TODAY=$(date +%Y-%m-%d)
+          EXPIRED=false
+
+          # Check .grype.yaml for expired entries
+          if [ -f .grype.yaml ]; then
+            while IFS= read -r line; do
+              exp_date=$(echo "$line" | sed -n 's/.*#[[:space:]]*expires:[[:space:]]*\([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\).*/\1/p')
+              if [ -n "$exp_date" ] && [ "$TODAY" \> "$exp_date" -o "$TODAY" = "$exp_date" ]; then
+                cve=$(grep -B5 "$exp_date" .grype.yaml | sed -n 's/.*vulnerability:[[:space:]]*\(CVE-[^ ]*\).*/\1/p' | tail -1)
+                echo "::error::Expired CVE ignore in .grype.yaml: ${cve:-unknown} (expired $exp_date)"
+                EXPIRED=true
+              fi
+            done < .grype.yaml
+          fi
+
+          # Check .trivyignore for expired entries
+          if [ -f .trivyignore ]; then
+            while IFS= read -r line; do
+              exp_date=$(echo "$line" | sed -n 's/.*expires:[[:space:]]*\([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\).*/\1/p')
+              if [ -n "$exp_date" ] && [ "$TODAY" \> "$exp_date" -o "$TODAY" = "$exp_date" ]; then
+                cve=$(echo "$line" | sed -n 's/^\(CVE-[^ ]*\).*/\1/p')
+                echo "::error::Expired CVE ignore in .trivyignore: ${cve:-unknown} (expired $exp_date)"
+                EXPIRED=true
+              fi
+            done < .trivyignore
+          fi
+
+          if [ "$EXPIRED" = "true" ]; then
+            echo "::error::Remove expired entries or update the expiry date"
+            exit 1
+          fi
+          echo "All CVE ignore entries are within expiry"
+
       - name: Cache Trivy DB
         uses: actions/cache@v5
         with:
@@ -958,7 +995,6 @@ jobs:
 
       - name: Scan alpine image (Trivy)
         uses: aquasecurity/trivy-action@0.34.0
-        continue-on-error: ${{ startsWith(github.ref, 'refs/tags/') }}
         with:
           image-ref: sks5:alpine-scan
           severity: CRITICAL,HIGH,MEDIUM
@@ -966,10 +1002,10 @@ jobs:
           format: table
           timeout: 10m0s
           cache-dir: /tmp/trivy-db
+          trivyignore: .trivyignore
 
       - name: Scan scratch image (Trivy)
         uses: aquasecurity/trivy-action@0.34.0
-        continue-on-error: ${{ startsWith(github.ref, 'refs/tags/') }}
         with:
           image-ref: sks5:scratch-scan
           severity: CRITICAL,HIGH,MEDIUM
@@ -977,6 +1013,16 @@ jobs:
           format: table
           timeout: 10m0s
           cache-dir: /tmp/trivy-db
+          trivyignore: .trivyignore
+
+      - name: Install Grype
+        run: curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+
+      - name: Scan alpine image (Grype)
+        run: grype sks5:alpine-scan --fail-on medium -c .grype.yaml
+
+      - name: Scan scratch image (Grype)
+        run: grype sks5:scratch-scan --fail-on medium -c .grype.yaml
 
       # --- Tags only: login, metadata, rebuild+push ---
       - name: Login to GHCR
@@ -1059,12 +1105,56 @@ jobs:
           cache-from: type=gha,scope=docker
 
   # ===========================================================================
+  # Quality Gate: all checks must pass before any publish/release
+  # ===========================================================================
+  gate:
+    name: Quality Gate
+    needs: [lint, test, e2e-tests, test-msrv, security, coverage, docker, docker-lint]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate results
+        run: |
+          echo "Job results:"
+          echo "  lint:        ${{ needs.lint.result }}"
+          echo "  test:        ${{ needs.test.result }}"
+          echo "  e2e-tests:   ${{ needs.e2e-tests.result }}"
+          echo "  test-msrv:   ${{ needs.test-msrv.result }}"
+          echo "  security:    ${{ needs.security.result }}"
+          echo "  coverage:    ${{ needs.coverage.result }}"
+          echo "  docker:      ${{ needs.docker.result }}"
+          echo "  docker-lint: ${{ needs.docker-lint.result }}"
+
+          # Each job must be 'success' or 'skipped' (path filter)
+          # 'failure' or 'cancelled' means the gate fails
+          FAILED=false
+          for result in \
+            "${{ needs.lint.result }}" \
+            "${{ needs.test.result }}" \
+            "${{ needs.e2e-tests.result }}" \
+            "${{ needs.test-msrv.result }}" \
+            "${{ needs.security.result }}" \
+            "${{ needs.coverage.result }}" \
+            "${{ needs.docker.result }}" \
+            "${{ needs.docker-lint.result }}"; do
+            if [ "$result" != "success" ] && [ "$result" != "skipped" ]; then
+              FAILED=true
+            fi
+          done
+
+          if [ "$FAILED" = "true" ]; then
+            echo "::error::Quality gate failed — one or more required jobs did not succeed"
+            exit 1
+          fi
+          echo "Quality gate passed — all required jobs succeeded or were skipped"
+
+  # ===========================================================================
   # Publish: crates.io + Homebrew notification (v* release only)
   # ===========================================================================
   publish-crate:
     name: Publish to crates.io
-    needs: [cross-build]
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [gate, cross-build]
+    if: startsWith(github.ref, 'refs/tags/v') && needs.gate.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
