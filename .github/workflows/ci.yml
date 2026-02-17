@@ -752,10 +752,12 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Download all artifacts
+      - name: Download release artifacts
         uses: actions/download-artifact@v7
         with:
           path: artifacts/
+          pattern: '{sks5-*,sbom,completions,manpage}'
+          merge-multiple: false
 
       - name: Collect release files
         run: |
