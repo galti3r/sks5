@@ -947,7 +947,7 @@ jobs:
         with:
           images: |
             ghcr.io/${{ github.repository }}
-            galti3r/sks5
+            dockerhubgalti3r/sks5
           tags: |
             type=semver,pattern={{version}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
             type=semver,pattern={{major}}.{{minor}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
@@ -979,7 +979,7 @@ jobs:
         with:
           images: |
             ghcr.io/${{ github.repository }}
-            galti3r/sks5
+            dockerhubgalti3r/sks5
           flavor: |
             suffix=-scratch
           tags: |

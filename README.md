@@ -1,7 +1,7 @@
 # sks5
 
 [![CI](https://github.com/galti3r/sks5/actions/workflows/ci.yml/badge.svg)](https://github.com/galti3r/sks5/actions/workflows/ci.yml) [![codecov](https://codecov.io/gh/galti3r/sks5/graph/badge.svg)](https://codecov.io/gh/galti3r/sks5) [![deps.rs](https://deps.rs/repo/github/galti3r/sks5/status.svg)](https://deps.rs/repo/github/galti3r/sks5) [![Crates.io](https://img.shields.io/crates/v/sks5.svg)](https://crates.io/crates/sks5) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![docs.rs](https://img.shields.io/docsrs/sks5)](https://docs.rs/sks5) [![Docker](https://img.shields.io/docker/v/galti3r/sks5?label=docker)](https://hub.docker.com/r/galti3r/sks5) [![Homebrew](https://img.shields.io/badge/homebrew-sks5-FBB040?logo=homebrew)](https://github.com/galti3r/homebrew-sks5) [![Release](https://img.shields.io/github/v/release/galti3r/sks5)](https://github.com/galti3r/sks5/releases/latest) [![MSRV](https://img.shields.io/badge/MSRV-1.88-orange.svg)](https://blog.rust-lang.org/)
+[![docs.rs](https://img.shields.io/docsrs/sks5)](https://docs.rs/sks5) [![Docker](https://img.shields.io/docker/v/dockerhubgalti3r/sks5?label=docker)](https://hub.docker.com/r/dockerhubgalti3r/sks5) [![Homebrew](https://img.shields.io/badge/homebrew-sks5-FBB040?logo=homebrew)](https://github.com/galti3r/homebrew-sks5) [![Release](https://img.shields.io/github/v/release/galti3r/sks5)](https://github.com/galti3r/sks5/releases/latest) [![MSRV](https://img.shields.io/badge/MSRV-1.88-orange.svg)](https://blog.rust-lang.org/)
 
 > Lightweight Alpine-based Docker images. Rootless by default. Single static binary. Multi-user auth. Real-time dashboard.
 
