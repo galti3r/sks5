@@ -147,6 +147,12 @@ sks5 wizard
 
 Full-screen interactive wizard with 14 configuration sections (Server, Users, ACL, Security, Logging, Quotas, etc.). Navigate with arrow keys, configure all options, then save and validate.
 
+<p align="center">
+  <img src="https://galti3r.github.io/sks5/wizard.gif" alt="sks5 wizard" width="800">
+</p>
+
+> Generated with [VHS](https://github.com/charmbracelet/vhs) from [`contrib/wizard.tape`](contrib/wizard.tape). Regenerate locally: `vhs contrib/wizard.tape`
+
 For non-interactive use: `sks5 wizard --non-interactive --output config.toml`
 
 ### Generate a config file
