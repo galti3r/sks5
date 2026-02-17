@@ -1,6 +1,6 @@
 [package]
 name = "sks5"
-version = "0.0.9"
+version = "0.0.10"
 edition = "2021"
 description = "Lightweight SSH server with SOCKS5 proxy, shell emulation, and ACL"
 license = "MIT"
