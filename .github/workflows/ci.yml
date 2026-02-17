@@ -982,6 +982,7 @@ jobs:
             dockerhubgalti3r/sks5
           flavor: |
             suffix=-scratch
+            latest=false
           tags: |
             type=semver,pattern={{version}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
             type=semver,pattern={{major}}.{{minor}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}

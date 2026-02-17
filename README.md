@@ -92,11 +92,13 @@ docker run -p 2222:2222 ghcr.io/galti3r/sks5:latest quick-start --password demo
 podman run -p 2222:2222 ghcr.io/galti3r/sks5:latest quick-start --password demo
 ```
 
+Available on both `ghcr.io/galti3r/sks5` and `dockerhubgalti3r/sks5`:
+
 | Tag | Base | Size | Shell | Use case |
 |-----|------|------|-------|----------|
-| `latest` / `1.x.x` | Alpine 3.21 | ~12 MB | Yes | Production (default) |
-| `latest-alpine` / `1.x.x-alpine` | Alpine 3.21 | ~12 MB | Yes | Alias for `latest` |
-| `latest-scratch` / `1.x.x-scratch` | scratch | ~5 MB | No | Minimal attack surface |
+| `latest` / `0.x.x` | Alpine 3.21 | ~12 MB | Yes | Production (default) |
+| `latest-alpine` / `0.x.x-alpine` | Alpine 3.21 | ~12 MB | Yes | Alias for `latest` |
+| `latest-scratch` / `0.x.x-scratch` | scratch | ~5 MB | No | Minimal attack surface |
 
 ### Cargo
 
