@@ -1000,7 +1000,7 @@ jobs:
           format: table
           timeout: 10m0s
           cache-dir: /tmp/trivy-db
-          trivyignore: .trivyignore
+          trivyignores: .trivyignore
 
       - name: Scan scratch image (Trivy)
         uses: aquasecurity/trivy-action@0.34.0
@@ -1011,7 +1011,7 @@ jobs:
           format: table
           timeout: 10m0s
           cache-dir: /tmp/trivy-db
-          trivyignore: .trivyignore
+          trivyignores: .trivyignore
 
       - name: Install Grype
         run: curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
