@@ -459,7 +459,14 @@ phase4() {
     fi
 
     if $WITH_DOCKER && $PODMAN_AVAILABLE; then
-        run_job "Docker Build" make docker-build &
+        if command -v trivy &>/dev/null; then
+            run_job "Docker Build + Scan" bash -c \
+                'make docker-build-all && trivy image --image-src podman --exit-code 1 --severity CRITICAL,HIGH sks5:latest && trivy image --image-src podman --exit-code 1 --severity CRITICAL,HIGH sks5:scratch' &
+        else
+            run_job "Docker Build" make docker-build-all &
+            log_skip "Docker Scan (trivy not installed)"
+            SKIP_COUNT=$(( SKIP_COUNT + 1 ))
+        fi
         has_jobs=true
     elif $WITH_DOCKER; then
         log_skip "Docker Build (podman not available)"
