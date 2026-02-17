@@ -647,7 +647,7 @@ phase4() {
             trivy_cmd=$(trivy_command)
             trivy_src=$(trivy_image_src)
             run_job "Docker Build + Scan ($TRIVY_VIA)" bash -c \
-                "make docker-build-all && $trivy_cmd image --image-src $trivy_src --exit-code 1 --severity CRITICAL,HIGH sks5:latest && $trivy_cmd image --image-src $trivy_src --exit-code 1 --severity CRITICAL,HIGH sks5:scratch" &
+                "make docker-build-all && $trivy_cmd image --image-src $trivy_src --exit-code 1 --severity CRITICAL,HIGH,MEDIUM sks5:latest && $trivy_cmd image --image-src $trivy_src --exit-code 1 --severity CRITICAL,HIGH,MEDIUM sks5:scratch" &
         else
             run_job "Docker Build" make docker-build-all &
             log_skip "Docker Scan (trivy not available)"

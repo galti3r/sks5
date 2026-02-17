@@ -961,7 +961,7 @@ jobs:
         continue-on-error: ${{ startsWith(github.ref, 'refs/tags/') }}
         with:
           image-ref: sks5:alpine-scan
-          severity: CRITICAL,HIGH
+          severity: CRITICAL,HIGH,MEDIUM
           exit-code: 1
           format: table
           timeout: 10m0s
@@ -972,7 +972,7 @@ jobs:
         continue-on-error: ${{ startsWith(github.ref, 'refs/tags/') }}
         with:
           image-ref: sks5:scratch-scan
-          severity: CRITICAL,HIGH
+          severity: CRITICAL,HIGH,MEDIUM
           exit-code: 1
           format: table
           timeout: 10m0s

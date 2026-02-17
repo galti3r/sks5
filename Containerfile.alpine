@@ -19,7 +19,8 @@ LABEL org.opencontainers.image.title="sks5" \
       org.opencontainers.image.source="https://github.com/galti3r/sks5" \
       org.opencontainers.image.licenses="MIT"
 
-RUN apk add --no-cache ca-certificates && \
+RUN apk upgrade --no-cache && \
+    apk add --no-cache ca-certificates && \
     adduser -D -u 1000 sks5 && \
     mkdir -p /etc/sks5 /var/log/sks5 && \
     chown sks5:sks5 /etc/sks5 /var/log/sks5

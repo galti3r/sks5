@@ -103,8 +103,8 @@ docker-build-all: docker-build docker-build-scratch
 
 docker-scan: ensure-podman-socket
 	@command -v trivy >/dev/null 2>&1 || { echo "Install trivy: https://trivy.dev"; exit 1; }
-	trivy image --image-src podman --exit-code 1 --severity CRITICAL,HIGH sks5:latest
-	trivy image --image-src podman --exit-code 1 --severity CRITICAL,HIGH sks5:scratch
+	trivy image --image-src podman --exit-code 1 --severity CRITICAL,HIGH,MEDIUM sks5:latest
+	trivy image --image-src podman --exit-code 1 --severity CRITICAL,HIGH,MEDIUM sks5:scratch
 
 docker-build-scan: docker-build-all docker-scan
 
