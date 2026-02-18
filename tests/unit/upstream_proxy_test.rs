@@ -139,6 +139,7 @@ mod resolve_priority {
             alerting: Default::default(),
             maintenance_windows: Vec::new(),
             connection_pool: ConnectionPoolConfig::default(),
+            persistence: Default::default(),
         }
     }
 

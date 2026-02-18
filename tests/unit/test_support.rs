@@ -199,5 +199,6 @@ pub fn full_app_config(users: Vec<UserConfig>, security: SecurityConfig) -> AppC
         alerting: AlertingConfig::default(),
         maintenance_windows: Vec::new(),
         connection_pool: ConnectionPoolConfig::default(),
+        persistence: Default::default(),
     }
 }

@@ -23,7 +23,10 @@ LABEL org.opencontainers.image.title="sks5" \
 COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=builder /build/target/release/sks5 /sks5
 
+ENV SKS5_DATA_DIR=/data
+
 EXPOSE 2222 1080 9090 9091
+VOLUME /data
 
 USER 65534
 

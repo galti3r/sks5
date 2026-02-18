@@ -5,10 +5,12 @@ pub mod filesystem;
 pub mod parser;
 pub mod terminal;
 
+use crate::persistence::userdata::UserDataStore;
 use anyhow::Result;
 use context::ShellContext;
 use executor::CommandExecutor;
 use russh::CryptoVec;
+use std::sync::Arc;
 use terminal::TerminalState;
 
 /// A shell session attached to an SSH channel.
@@ -28,16 +30,44 @@ pub struct ShellSession {
     closed: bool,
     /// Pre-rendered MOTD to send on shell_request
     motd: Option<String>,
+    /// Username for this session (used for userdata recording)
+    username: String,
+    /// Optional userdata store for persisting history/bookmarks
+    userdata_store: Option<Arc<UserDataStore>>,
 }
 
 impl ShellSession {
     pub fn new(username: String, hostname: String) -> Self {
         Self {
             terminal: TerminalState::new(),
-            executor: CommandExecutor::new(username, hostname),
+            executor: CommandExecutor::new(username.clone(), hostname),
             closed: false,
             motd: None,
+            username,
+            userdata_store: None,
         }
+    }
+
+    /// Create a new shell session with pre-loaded command history.
+    pub fn new_with_history(username: String, hostname: String, history: Vec<String>) -> Self {
+        Self {
+            terminal: TerminalState::with_history(history),
+            executor: CommandExecutor::new(username.clone(), hostname),
+            closed: false,
+            motd: None,
+            username,
+            userdata_store: None,
+        }
+    }
+
+    /// Set the userdata store for recording history and bookmarks.
+    pub fn set_userdata_store(&mut self, store: Arc<UserDataStore>) {
+        self.userdata_store = Some(store);
+    }
+
+    /// Get a reference to the terminal's command history.
+    pub fn history(&self) -> &[String] {
+        self.terminal.history()
     }
 
     /// Set the shell context for extended commands (show, test, ping, etc.).
@@ -99,6 +129,11 @@ impl ShellSession {
                     continue;
                 }
 
+                // Record command to userdata store for persistence
+                if let Some(ref store) = self.userdata_store {
+                    store.record_command(&self.username, line.clone());
+                }
+
                 let result = self.executor.execute(&line);
 
                 if !result.output.is_empty() {
@@ -107,6 +142,10 @@ impl ShellSession {
                 }
 
                 if result.exit_requested {
+                    // Flush user data on clean exit
+                    if let Some(ref store) = self.userdata_store {
+                        store.flush_user(&self.username);
+                    }
                     self.closed = true;
                     let _ = session.close(channel_id);
                     return Ok(());
@@ -119,5 +158,14 @@ impl ShellSession {
         }
 
         Ok(())
+    }
+}
+
+impl Drop for ShellSession {
+    fn drop(&mut self) {
+        // Flush user data on session drop (covers disconnect without clean exit)
+        if let Some(ref store) = self.userdata_store {
+            store.flush_user(&self.username);
+        }
     }
 }

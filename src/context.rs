@@ -3,6 +3,7 @@ use crate::audit::AuditLogger;
 use crate::auth::AuthService;
 use crate::config::types::AppConfig;
 use crate::metrics::MetricsRegistry;
+use crate::persistence::userdata::UserDataStore;
 use crate::proxy::ProxyEngine;
 use crate::quota::QuotaTracker;
 use crate::security::SecurityManager;
@@ -29,4 +30,6 @@ pub struct AppContext {
     /// Each authenticated SSH session registers its token here;
     /// the kick API cancels all tokens for a given username.
     pub kick_tokens: Arc<DashMap<String, Vec<CancellationToken>>>,
+    /// Per-user data store for shell history, bookmarks, preferences.
+    pub userdata_store: Option<Arc<UserDataStore>>,
 }

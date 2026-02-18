@@ -24,6 +24,8 @@ services:
     volumes:
       - ./config.example.toml:/etc/sks5/config.toml:ro
       - sks5-hostkey:/etc/sks5/keys
+      - sks5-data-main:/data
+    stop_grace_period: 35s
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "/sks5", "health-check", "--addr", "127.0.0.1:2222", "--timeout", "3"]
@@ -151,4 +153,5 @@ secrets:
 volumes:
   sks5-hostkey:
   sks5-data:
+  sks5-data-main:
   sks5-data-tls:

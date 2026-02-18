@@ -22,8 +22,10 @@ LABEL org.opencontainers.image.title="sks5" \
 RUN apk upgrade --no-cache && \
     apk add --no-cache ca-certificates && \
     adduser -D -u 1000 sks5 && \
-    mkdir -p /etc/sks5 /var/log/sks5 && \
-    chown sks5:sks5 /etc/sks5 /var/log/sks5
+    mkdir -p /etc/sks5 /var/log/sks5 /data && \
+    chown sks5:sks5 /etc/sks5 /var/log/sks5 /data
+
+ENV SKS5_DATA_DIR=/data
 
 COPY --from=builder /build/target/release/sks5 /usr/local/bin/sks5
 
@@ -32,7 +34,7 @@ WORKDIR /etc/sks5
 
 EXPOSE 2222 1080 9090 9091
 
-VOLUME ["/etc/sks5"]
+VOLUME ["/etc/sks5", "/data"]
 
 STOPSIGNAL SIGTERM
 

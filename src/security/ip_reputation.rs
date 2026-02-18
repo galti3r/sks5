@@ -123,4 +123,70 @@ impl IpReputationManager {
             .filter(|(_, s)| *s > 0)
             .collect()
     }
+
+    /// Export scores above `min_score` for persistence.
+    ///
+    /// Returns (IP, raw_score_with_decay, last_update_epoch, auth_failure_count).
+    pub fn export_scores(&self, min_score: u32) -> Vec<(IpAddr, f64, u64, u32)> {
+        let now_instant = Instant::now();
+        let now_epoch = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        self.scores
+            .iter()
+            .filter_map(|entry| {
+                let decayed = Self::apply_decay(entry.score, entry.last_updated);
+                if (decayed.max(0.0) as u32) < min_score {
+                    return None;
+                }
+                let ago = now_instant
+                    .checked_duration_since(entry.last_updated)
+                    .unwrap_or_default();
+                let update_epoch = now_epoch.saturating_sub(ago.as_secs());
+                Some((
+                    *entry.key(),
+                    decayed,
+                    update_epoch,
+                    entry.auth_failure_count,
+                ))
+            })
+            .collect()
+    }
+
+    /// Import scores from persisted data.
+    ///
+    /// Reconstructs `Instant` timestamps from epoch values.
+    pub fn import_scores(&self, scores: &[(IpAddr, f64, u64, u32)]) {
+        let now_instant = Instant::now();
+        let now_epoch = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        for &(ip, score, update_epoch, failure_count) in scores {
+            if score <= 0.0 {
+                continue;
+            }
+            let ago_secs = now_epoch.saturating_sub(update_epoch);
+            let last_updated = now_instant
+                .checked_sub(std::time::Duration::from_secs(ago_secs))
+                .unwrap_or(now_instant);
+
+            self.scores.insert(
+                ip,
+                IpScore {
+                    score,
+                    last_updated,
+                    last_auth_failure: if failure_count > 0 {
+                        Some(last_updated)
+                    } else {
+                        None
+                    },
+                    auth_failure_count: failure_count,
+                },
+            );
+        }
+    }
 }

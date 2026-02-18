@@ -1,10 +1,11 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
 use tracing::{error, info};
 
 use sks5::cli::{Cli, Command};
 use sks5::config;
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use sks5::config::types::{
     AlertingConfig, AppConfig, ConnectionPoolConfig, GlobalAclConfig, LogFormat, LoggingConfig,
@@ -251,17 +252,7 @@ fn main() -> Result<()> {
         }
         Some(Command::ShowConfig { format }) => {
             // Load config the same way as the server does
-            let app_config = if cli.config.exists() {
-                let mut cfg = config::load_config(&cli.config)?;
-                config::env::apply_env_overrides(&mut cfg);
-                cfg
-            } else if config::env::can_build_from_env() {
-                let cfg = config::env::build_config_from_env()?;
-                config::parse_config_validate(&cfg)?;
-                cfg
-            } else {
-                config::load_config(&cli.config)?
-            };
+            let (app_config, _) = load_effective_config(&cli)?;
 
             let redacted = config::redact::redact_config(&app_config);
 
@@ -419,22 +410,8 @@ fn main() -> Result<()> {
         None => {}
     }
 
-    // Load config: file → env vars → error
-    let (app_config, config_path) = if cli.config.exists() {
-        let mut cfg = config::load_config(&cli.config)?;
-        // Apply env var overrides (hybrid mode)
-        config::env::apply_env_overrides(&mut cfg);
-        (cfg, Some(cli.config.clone()))
-    } else if config::env::can_build_from_env() {
-        let cfg = config::env::build_config_from_env()?;
-        config::parse_config_validate(&cfg)?;
-        eprintln!("No config file found — using environment variables");
-        (cfg, None)
-    } else {
-        // Try to load anyway (will produce a clear "file not found" error)
-        let cfg = config::load_config(&cli.config)?;
-        (cfg, Some(cli.config.clone()))
-    };
+    // Load config with priority chain: CLI > env (if force_env) > TOML > defaults
+    let (app_config, config_path) = load_effective_config(&cli)?;
 
     // Setup logging (CLI override > config)
     let log_level = cli
@@ -536,6 +513,7 @@ fn build_quick_config(
         alerting: AlertingConfig::default(),
         maintenance_windows: Vec::new(),
         connection_pool: ConnectionPoolConfig::default(),
+        persistence: Default::default(),
     }
 }
 
@@ -616,4 +594,161 @@ deny = ["169.254.169.254:*"]
         username = username,
         password_hash = password_hash,
     )
+}
+
+/// Load the effective configuration following the priority chain:
+///   CLI args (highest) > env vars (if force_env or no config file) > config.toml > defaults
+///
+/// Returns (AppConfig, Option<config_path>).
+fn load_effective_config(cli: &Cli) -> Result<(AppConfig, Option<PathBuf>)> {
+    let config_explicitly_set = std::env::args().any(|a| a == "-c" || a == "--config")
+        || std::env::var("SKS5_CONFIG").is_ok();
+
+    let (mut cfg, config_path) = if cli.config.exists() {
+        let mut loaded = config::load_config(&cli.config)?;
+        // Only apply env overrides when force_env is set
+        if cli.force_env {
+            config::env::apply_env_overrides(&mut loaded);
+        }
+        (loaded, Some(cli.config.clone()))
+    } else if config_explicitly_set {
+        // User explicitly asked for a config file that doesn't exist — hard error
+        anyhow::bail!(
+            "config file not found: {} (specified via --config or SKS5_CONFIG)",
+            cli.config.display()
+        );
+    } else if config::env::can_build_from_env() {
+        let loaded = config::env::build_config_from_env()?;
+        config::parse_config_validate(&loaded)?;
+        eprintln!("No config file found — using environment variables");
+        (loaded, None)
+    } else {
+        // Nothing available — generate minimal config and write it
+        eprintln!("No config file or environment variables found.");
+        eprintln!("Generating minimal config at: {}", cli.config.display());
+
+        let password = sks5::auth::password::generate_password(20);
+        let password_hash = sks5::auth::password::hash_password(&password)?;
+        let toml_str =
+            generate_config_toml("user", &password_hash, "0.0.0.0:2222", Some("0.0.0.0:1080"));
+        std::fs::write(&cli.config, &toml_str)
+            .with_context(|| format!("writing minimal config to {}", cli.config.display()))?;
+
+        eprintln!("  Username: user");
+        eprintln!("  Password: {}", password);
+        eprintln!();
+
+        let loaded = config::load_config(&cli.config)?;
+        (loaded, Some(cli.config.clone()))
+    };
+
+    // Apply CLI overrides (always highest priority)
+    apply_cli_overrides(cli, &mut cfg)?;
+
+    Ok((cfg, config_path))
+}
+
+/// Apply CLI argument overrides to the config.
+/// Priority: --ssh-listen, --data-dir, then generic --set key=value.
+fn apply_cli_overrides(cli: &Cli, cfg: &mut AppConfig) -> Result<()> {
+    // Dedicated CLI flags
+    if let Some(ref listen) = cli.ssh_listen {
+        cfg.server.ssh_listen = listen.clone();
+    }
+    if let Some(ref data_dir) = cli.data_dir {
+        cfg.persistence.data_dir = Some(data_dir.clone());
+    }
+
+    // Generic --set overrides via serde_json Value manipulation
+    if !cli.overrides.is_empty() {
+        let mut value =
+            serde_json::to_value(&*cfg).context("serializing config for --set override")?;
+
+        for kv in &cli.overrides {
+            let (key, val_str) = kv.split_once('=').ok_or_else(|| {
+                anyhow::anyhow!("invalid --set format '{}' (expected KEY=VALUE)", kv)
+            })?;
+
+            let parts: Vec<&str> = key.split('.').collect();
+            if parts.is_empty() {
+                anyhow::bail!("invalid --set key: empty path");
+            }
+
+            // Navigate to the parent, then set the leaf
+            let mut current = &mut value;
+            for (i, part) in parts.iter().enumerate() {
+                if i == parts.len() - 1 {
+                    // Leaf — set the value
+                    let obj = current.as_object_mut().ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "--set: '{}' is not an object at '{}'",
+                            key,
+                            parts[..i].join(".")
+                        )
+                    })?;
+
+                    // Try to parse as the same type as the existing value, or infer type
+                    let new_val = if let Some(existing) = obj.get(*part) {
+                        parse_value_like(val_str, existing)?
+                    } else {
+                        parse_value_infer(val_str)
+                    };
+                    obj.insert(part.to_string(), new_val);
+                } else {
+                    current = current.get_mut(*part).ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "--set: unknown config path '{}' (failed at '{}')",
+                            key,
+                            part
+                        )
+                    })?;
+                }
+            }
+        }
+
+        *cfg =
+            serde_json::from_value(value).context("deserializing config after --set overrides")?;
+    }
+
+    Ok(())
+}
+
+/// Parse a string value to match the type of an existing JSON value.
+fn parse_value_like(s: &str, existing: &serde_json::Value) -> Result<serde_json::Value> {
+    match existing {
+        serde_json::Value::Bool(_) => {
+            let b = matches!(s.to_ascii_lowercase().as_str(), "true" | "1" | "yes");
+            Ok(serde_json::Value::Bool(b))
+        }
+        serde_json::Value::Number(_) => {
+            if let Ok(n) = s.parse::<u64>() {
+                Ok(serde_json::json!(n))
+            } else if let Ok(n) = s.parse::<i64>() {
+                Ok(serde_json::json!(n))
+            } else if let Ok(n) = s.parse::<f64>() {
+                Ok(serde_json::json!(n))
+            } else {
+                anyhow::bail!("expected a number for this field, got '{}'", s)
+            }
+        }
+        serde_json::Value::String(_) => Ok(serde_json::Value::String(s.to_string())),
+        _ => Ok(parse_value_infer(s)),
+    }
+}
+
+/// Infer the type of a string value (for new/unknown fields).
+fn parse_value_infer(s: &str) -> serde_json::Value {
+    if s.eq_ignore_ascii_case("true") {
+        serde_json::Value::Bool(true)
+    } else if s.eq_ignore_ascii_case("false") {
+        serde_json::Value::Bool(false)
+    } else if let Ok(n) = s.parse::<u64>() {
+        serde_json::json!(n)
+    } else if let Ok(n) = s.parse::<i64>() {
+        serde_json::json!(n)
+    } else if let Ok(n) = s.parse::<f64>() {
+        serde_json::json!(n)
+    } else {
+        serde_json::Value::String(s.to_string())
+    }
 }

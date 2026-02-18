@@ -115,6 +115,148 @@ pub struct AppConfig {
     pub maintenance_windows: Vec<MaintenanceWindowConfig>,
     #[serde(default)]
     pub connection_pool: ConnectionPoolConfig,
+    #[serde(default)]
+    pub persistence: PersistenceConfig,
+}
+
+/// Persistence configuration — controls data retention across restarts.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct PersistenceConfig {
+    /// Base directory for all persisted data.
+    /// Default: `{config_dir}/data/` if config file exists, else `./data/`.
+    pub data_dir: Option<PathBuf>,
+
+    #[serde(default)]
+    pub state: StatePersistenceConfig,
+
+    #[serde(default)]
+    pub userdata: UserDataPersistenceConfig,
+
+    #[serde(default)]
+    pub config_history: ConfigHistoryConfig,
+}
+
+/// State persistence — bans, quotas, auth failures, IP reputation.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct StatePersistenceConfig {
+    /// Enable automatic state save/load across restarts.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Flush interval in seconds for bans + quotas + auth failures.
+    #[serde(default = "default_state_flush_interval")]
+    pub flush_interval_secs: u64,
+
+    /// Minimum IP reputation score to persist (lower scores are not saved).
+    #[serde(default = "default_ip_rep_min_score")]
+    pub ip_reputation_min_score: u32,
+
+    /// Flush interval in seconds for IP reputation (separate, potentially larger file).
+    #[serde(default = "default_ip_rep_flush_interval")]
+    pub ip_reputation_flush_interval_secs: u64,
+
+    /// Purge quota data for users no longer in config after N days (0 = never).
+    #[serde(default = "default_inactive_user_retention_days")]
+    pub inactive_user_retention_days: u32,
+}
+
+impl Default for StatePersistenceConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            flush_interval_secs: 30,
+            ip_reputation_min_score: 10,
+            ip_reputation_flush_interval_secs: 300,
+            inactive_user_retention_days: 30,
+        }
+    }
+}
+
+fn default_state_flush_interval() -> u64 {
+    30
+}
+fn default_ip_rep_min_score() -> u32 {
+    10
+}
+fn default_ip_rep_flush_interval() -> u64 {
+    300
+}
+fn default_inactive_user_retention_days() -> u32 {
+    30
+}
+
+/// User data persistence — shell history, bookmarks, preferences.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct UserDataPersistenceConfig {
+    /// Enable user data persistence (shell history, bookmarks, preferences).
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Maximum shell history entries per user (FIFO, oldest evicted).
+    #[serde(default = "default_shell_history_max")]
+    pub shell_history_max: u32,
+
+    /// Flush interval in seconds for shell history buffer.
+    #[serde(default = "default_shell_history_flush_secs")]
+    pub shell_history_flush_secs: u64,
+
+    /// Maximum bookmarks per user.
+    #[serde(default = "default_bookmarks_max")]
+    pub bookmarks_max: u32,
+
+    /// Purge user data files for users no longer in config after N days (0 = never).
+    #[serde(default = "default_userdata_inactive_retention_days")]
+    pub inactive_retention_days: u32,
+}
+
+impl Default for UserDataPersistenceConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            shell_history_max: 100,
+            shell_history_flush_secs: 60,
+            bookmarks_max: 50,
+            inactive_retention_days: 90,
+        }
+    }
+}
+
+fn default_shell_history_max() -> u32 {
+    100
+}
+fn default_shell_history_flush_secs() -> u64 {
+    60
+}
+fn default_bookmarks_max() -> u32 {
+    50
+}
+fn default_userdata_inactive_retention_days() -> u32 {
+    90
+}
+
+/// Config history — TOML snapshots before programmatic modifications.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ConfigHistoryConfig {
+    /// Enable config history (save TOML snapshot before each modification).
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Maximum number of config history entries (oldest pruned).
+    #[serde(default = "default_config_history_max")]
+    pub max_entries: u32,
+}
+
+impl Default for ConfigHistoryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_entries: 50,
+        }
+    }
+}
+
+fn default_config_history_max() -> u32 {
+    50
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

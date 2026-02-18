@@ -146,6 +146,10 @@ impl SecurityManager {
         &self.ban_manager
     }
 
+    pub fn ban_manager_mut(&mut self) -> &mut BanManager {
+        &mut self.ban_manager
+    }
+
     pub fn ip_reputation(&self) -> &IpReputationManager {
         &self.ip_reputation
     }

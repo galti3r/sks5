@@ -486,7 +486,20 @@ impl russh::server::Handler for SshHandler {
         // channel — the ChannelRef in Session::channels keeps it alive.
         drop(channel);
 
-        let mut shell = ShellSession::new(username.clone(), self.ctx.config.shell.hostname.clone());
+        // Load persisted user data (history, bookmarks) if available
+        let (persisted_history, persisted_bookmarks) =
+            if let Some(ref store) = self.ctx.userdata_store {
+                let data = store.load_user(&username);
+                (data.shell_history, data.bookmarks)
+            } else {
+                (Vec::new(), HashMap::new())
+            };
+
+        let mut shell = ShellSession::new_with_history(
+            username.clone(),
+            self.ctx.config.shell.hostname.clone(),
+            persisted_history,
+        );
 
         // Build ShellContext from user data for extended shell commands
         let shell_ctx = ShellContext {
@@ -501,7 +514,7 @@ impl russh::server::Handler for SshHandler {
             expires_at: user.expires_at.map(|dt| dt.to_rfc3339()),
             max_bandwidth_kbps: user.max_bandwidth_kbps,
             server_start_time: self.ctx.start_time,
-            bookmarks: HashMap::new(),
+            bookmarks: persisted_bookmarks,
             aliases: user.aliases.clone(),
             ssh_key_fingerprint: self.session_state.ssh_key_fingerprint.clone(),
             proxy_engine: Some(self.ctx.proxy_engine.clone()),
@@ -509,6 +522,11 @@ impl russh::server::Handler for SshHandler {
             quota_config: user.quotas.clone(),
         };
         shell.set_context(shell_ctx);
+
+        // Wire userdata store for history/bookmark persistence
+        if let Some(ref store) = self.ctx.userdata_store {
+            shell.set_userdata_store(store.clone());
+        }
 
         // Render MOTD
         let (motd_enabled, motd_template, motd_colors) = motd::resolve_motd_config(

@@ -10,6 +10,7 @@ pub mod geoip;
 pub mod logging;
 pub mod metrics;
 pub mod motd;
+pub mod persistence;
 pub mod proxy;
 pub mod quota;
 pub mod security;

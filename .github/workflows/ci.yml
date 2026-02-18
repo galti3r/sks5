@@ -103,6 +103,9 @@ jobs:
       - name: cargo fmt
         run: cargo fmt --all -- --check
 
+      - name: Verify E2E test sync
+        run: ./scripts/check-ci-test-sync.sh
+
       - name: cargo clippy
         run: cargo clippy --all-targets -- -D warnings
 
@@ -232,6 +235,7 @@ jobs:
               --test e2e_ws
               --test e2e_metrics_server
               --test e2e_backup_restore
+              --test e2e_persistence
               --test e2e_reload
               --test e2e_performance
     steps:

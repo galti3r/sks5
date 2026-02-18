@@ -153,9 +153,18 @@ GRYPE_VIA=""
 # Cleanup
 # ===========================================================================
 cleanup() {
-    # Kill any remaining background jobs
+    # Kill child processes (cargo, rustc, etc.) before subshell parents
+    # to prevent orphaned builds writing to target/
+    for pid in "${ACTIVE_PIDS[@]}"; do
+        pkill -TERM -P "$pid" 2>/dev/null || true
+    done
     for pid in "${ACTIVE_PIDS[@]}"; do
         kill -TERM "$pid" 2>/dev/null || true
+    done
+    sleep 0.3
+    for pid in "${ACTIVE_PIDS[@]}"; do
+        pkill -KILL -P "$pid" 2>/dev/null || true
+        kill -KILL "$pid" 2>/dev/null || true
     done
     # Kill stray children (tickers, etc.)
     jobs -p 2>/dev/null | xargs -r kill 2>/dev/null || true
@@ -398,7 +407,7 @@ classify_test() {
             echo "acl_security" ;;
         e2e_api*|e2e_quota*|e2e_status|e2e_cli)
             echo "api_dashboard" ;;
-        e2e_audit*|e2e_webhook*|e2e_sse*|e2e_ws|e2e_metrics*|e2e_backup*|e2e_reload|e2e_performance)
+        e2e_audit*|e2e_webhook*|e2e_sse*|e2e_ws|e2e_metrics*|e2e_backup*|e2e_persistence|e2e_reload|e2e_performance)
             echo "integrations" ;;
         *)
             echo "catchall" ;;
@@ -588,14 +597,21 @@ kill_all_active() {
         fi
     done
 
-    # SIGTERM all
+    # SIGTERM children first (cargo, rustc, etc.), then subshell parents.
+    # Bash subshells queue SIGTERM while a foreground command runs — the
+    # child process never receives it, becomes orphaned (reparented to
+    # PID 1), and keeps writing to target/.  Sending SIGTERM to children
+    # explicitly via pkill -P avoids this.
+    for pid in "${ACTIVE_PIDS[@]}"; do
+        pkill -TERM -P "$pid" 2>/dev/null || true
+    done
     for pid in "${ACTIVE_PIDS[@]}"; do
         kill -TERM "$pid" 2>/dev/null || true
     done
 
-    # Grace period (up to 1s)
+    # Grace period (up to 5s — cargo may need time to finish a link step)
     local attempts=0
-    while (( attempts < 5 )); do
+    while (( attempts < 25 )); do
         local alive=false
         for pid in "${ACTIVE_PIDS[@]}"; do
             kill -0 "$pid" 2>/dev/null && alive=true && break
@@ -605,8 +621,9 @@ kill_all_active() {
         attempts=$(( attempts + 1 ))
     done
 
-    # SIGKILL remaining
+    # SIGKILL remaining process trees
     for pid in "${ACTIVE_PIDS[@]}"; do
+        pkill -KILL -P "$pid" 2>/dev/null || true
         kill -KILL "$pid" 2>/dev/null || true
     done
 
@@ -962,6 +979,39 @@ run_gate() {
     fi
     local dur=$(( SECONDS - gate_start ))
     printf "  ${GREEN}%-2s${NC} %-38s ${DIM}%s${NC}\n" "ok" "fmt --check" "${dur}s"
+
+    local sync_start=$SECONDS
+    if ! "$SCRIPT_DIR/check-ci-test-sync.sh" > "$TMP_DIR/log.ci_test_sync" 2>&1; then
+        local sdur=$(( SECONDS - sync_start ))
+        printf "  ${RED}%-2s${NC} %-38s ${DIM}%s${NC}\n" "!!" "CI test sync" "${sdur}s"
+        echo ""
+        echo -e "${RED}E2E tests out of sync between Cargo.toml and ci.yml${NC}"
+        echo -e "${DIM}--- Output ---${NC}"
+        cat "$TMP_DIR/log.ci_test_sync"
+        echo -e "${DIM}--- End ---${NC}"
+        return 1
+    fi
+    local sdur=$(( SECONDS - sync_start ))
+    printf "  ${GREEN}%-2s${NC} %-38s ${DIM}%s${NC}\n" "ok" "CI test sync" "${sdur}s"
+
+    # Build cache health check: detect corruption left by a previous
+    # interrupted run (orphaned cargo processes, killed mid-write, etc.)
+    # and auto-recover by cleaning target/.
+    if [[ -d target/debug/.fingerprint ]]; then
+        local cache_start=$SECONDS
+        if ! cargo check > "$TMP_DIR/log.cache_check" 2>&1; then
+            if grep -qEi 'possibly newer version|required to be available in .* format|can.t find crate for|inconsistent metadata|compiled by an incompatible version' \
+                    "$TMP_DIR/log.cache_check" 2>/dev/null; then
+                cargo clean 2>/dev/null
+                local cdur=$(( SECONDS - cache_start ))
+                printf "  ${YELLOW}%-2s${NC} %-38s ${DIM}%s${NC}\n" "!!" "cache corrupted — auto-cleaned" "${cdur}s"
+            fi
+            # If it's a real code error, let the main compilation report it.
+        else
+            local cdur=$(( SECONDS - cache_start ))
+            printf "  ${GREEN}%-2s${NC} %-38s ${DIM}%s${NC}\n" "ok" "cache check" "${cdur}s"
+        fi
+    fi
 
     # CVE expiry check (only with --with-docker)
     if $WITH_DOCKER; then

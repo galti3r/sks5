@@ -174,6 +174,65 @@ impl BanManager {
         self.whitelist.iter().any(|net| net.contains(ip))
     }
 
+    /// Export current auth failures as (IP, Vec<epoch_seconds>) for persistence.
+    ///
+    /// Converts `Instant` timestamps to Unix epoch by computing their offset
+    /// from `Instant::now()` relative to `SystemTime::now()`.
+    pub fn export_failures(&self) -> Vec<(IpAddr, Vec<u64>)> {
+        let now_instant = std::time::Instant::now();
+        let now_epoch = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        self.failures
+            .iter()
+            .filter(|entry| !entry.value().is_empty())
+            .map(|entry| {
+                let ip = *entry.key();
+                let epochs: Vec<u64> = entry
+                    .value()
+                    .iter()
+                    .filter_map(|t| {
+                        let ago = now_instant.checked_duration_since(*t)?;
+                        Some(now_epoch.saturating_sub(ago.as_secs()))
+                    })
+                    .collect();
+                (ip, epochs)
+            })
+            .filter(|(_, epochs)| !epochs.is_empty())
+            .collect()
+    }
+
+    /// Import auth failures from persisted epoch timestamps.
+    ///
+    /// Only imports timestamps that are within the current failure window.
+    pub fn import_failures(&self, failures: &[(IpAddr, Vec<u64>)]) {
+        let now_instant = std::time::Instant::now();
+        let now_epoch = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        for (ip, epochs) in failures {
+            let instants: Vec<std::time::Instant> = epochs
+                .iter()
+                .filter_map(|&epoch| {
+                    let ago_secs = now_epoch.checked_sub(epoch)?;
+                    let ago = Duration::from_secs(ago_secs);
+                    if ago >= self.window {
+                        return None; // Outside window, skip
+                    }
+                    now_instant.checked_sub(ago)
+                })
+                .collect();
+
+            if !instants.is_empty() {
+                self.failures.insert(*ip, instants);
+            }
+        }
+    }
+
     /// Remove stale entries from the failures map (IPs with no recent failures).
     /// Called periodically by the cleanup task.
     pub fn cleanup_stale_failures(&self) {

@@ -38,7 +38,7 @@ pub fn build_config_from_env() -> anyhow::Result<AppConfig> {
         vec![build_single_user_from_env()?]
     };
 
-    let config = AppConfig {
+    let mut config = AppConfig {
         server: ServerConfig {
             ssh_listen,
             socks5_listen: opt_env("SKS5_SOCKS5_LISTEN"),
@@ -166,7 +166,11 @@ pub fn build_config_from_env() -> anyhow::Result<AppConfig> {
         alerting: AlertingConfig::default(),
         maintenance_windows: Vec::new(),
         connection_pool: ConnectionPoolConfig::default(),
+        persistence: Default::default(),
     };
+
+    // Apply persistence config from env
+    apply_persistence_env(&mut config);
 
     // Clear sensitive env vars from the process environment after reading them.
     // This reduces the window in which secrets are visible via /proc/pid/environ.
@@ -463,6 +467,9 @@ pub fn apply_env_overrides(config: &mut AppConfig) {
         config.metrics.listen = v;
     }
 
+    // Persistence overrides
+    apply_persistence_env(config);
+
     // Global ACL overrides
     if let Some(v) = opt_env("SKS5_GLOBAL_ACL_DEFAULT_POLICY") {
         if let Ok(policy) = parse_acl_policy(&v) {
@@ -518,6 +525,89 @@ fn clear_sensitive_env_vars() {
                 }
             }
         }
+    }
+}
+
+/// Apply persistence-related environment variable overrides.
+fn apply_persistence_env(config: &mut AppConfig) {
+    if let Some(v) = opt_env("SKS5_DATA_DIR") {
+        config.persistence.data_dir = Some(PathBuf::from(v));
+    }
+
+    // State persistence
+    if std::env::var("SKS5_STATE_PERSIST_ENABLED").is_ok() {
+        config.persistence.state.enabled = parse_bool_env(
+            "SKS5_STATE_PERSIST_ENABLED",
+            config.persistence.state.enabled,
+        );
+    }
+    if std::env::var("SKS5_STATE_FLUSH_INTERVAL").is_ok() {
+        config.persistence.state.flush_interval_secs = parse_env(
+            "SKS5_STATE_FLUSH_INTERVAL",
+            config.persistence.state.flush_interval_secs,
+        );
+    }
+    if std::env::var("SKS5_STATE_IP_REP_MIN_SCORE").is_ok() {
+        config.persistence.state.ip_reputation_min_score = parse_env(
+            "SKS5_STATE_IP_REP_MIN_SCORE",
+            config.persistence.state.ip_reputation_min_score,
+        );
+    }
+    if std::env::var("SKS5_STATE_IP_REP_FLUSH_INTERVAL").is_ok() {
+        config.persistence.state.ip_reputation_flush_interval_secs = parse_env(
+            "SKS5_STATE_IP_REP_FLUSH_INTERVAL",
+            config.persistence.state.ip_reputation_flush_interval_secs,
+        );
+    }
+    if std::env::var("SKS5_STATE_INACTIVE_USER_DAYS").is_ok() {
+        config.persistence.state.inactive_user_retention_days = parse_env(
+            "SKS5_STATE_INACTIVE_USER_DAYS",
+            config.persistence.state.inactive_user_retention_days,
+        );
+    }
+
+    // User data persistence
+    if std::env::var("SKS5_USERDATA_ENABLED").is_ok() {
+        config.persistence.userdata.enabled =
+            parse_bool_env("SKS5_USERDATA_ENABLED", config.persistence.userdata.enabled);
+    }
+    if std::env::var("SKS5_SHELL_HISTORY_MAX").is_ok() {
+        config.persistence.userdata.shell_history_max = parse_env(
+            "SKS5_SHELL_HISTORY_MAX",
+            config.persistence.userdata.shell_history_max,
+        );
+    }
+    if std::env::var("SKS5_SHELL_HISTORY_FLUSH_SECS").is_ok() {
+        config.persistence.userdata.shell_history_flush_secs = parse_env(
+            "SKS5_SHELL_HISTORY_FLUSH_SECS",
+            config.persistence.userdata.shell_history_flush_secs,
+        );
+    }
+    if std::env::var("SKS5_BOOKMARKS_MAX").is_ok() {
+        config.persistence.userdata.bookmarks_max = parse_env(
+            "SKS5_BOOKMARKS_MAX",
+            config.persistence.userdata.bookmarks_max,
+        );
+    }
+    if std::env::var("SKS5_USERDATA_INACTIVE_DAYS").is_ok() {
+        config.persistence.userdata.inactive_retention_days = parse_env(
+            "SKS5_USERDATA_INACTIVE_DAYS",
+            config.persistence.userdata.inactive_retention_days,
+        );
+    }
+
+    // Config history
+    if std::env::var("SKS5_CONFIG_HISTORY_ENABLED").is_ok() {
+        config.persistence.config_history.enabled = parse_bool_env(
+            "SKS5_CONFIG_HISTORY_ENABLED",
+            config.persistence.config_history.enabled,
+        );
+    }
+    if std::env::var("SKS5_CONFIG_HISTORY_MAX").is_ok() {
+        config.persistence.config_history.max_entries = parse_env(
+            "SKS5_CONFIG_HISTORY_MAX",
+            config.persistence.config_history.max_entries,
+        );
     }
 }
 

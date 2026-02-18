@@ -92,6 +92,7 @@ pub async fn start_ssh(config: AppConfig) -> TestSshServer {
         alert_engine: None,
         start_time: std::time::Instant::now(),
         kick_tokens: std::sync::Arc::new(dashmap::DashMap::new()),
+        userdata_store: None,
     });
 
     let key_pair =
@@ -140,6 +141,7 @@ pub async fn start_socks5(config: AppConfig) -> TestSocksServer {
         alert_engine: None,
         start_time: std::time::Instant::now(),
         kick_tokens: std::sync::Arc::new(dashmap::DashMap::new()),
+        userdata_store: None,
     });
 
     let task = tokio::spawn(async move {

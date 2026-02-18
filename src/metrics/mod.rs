@@ -92,6 +92,20 @@ pub struct MetricsRegistry {
     pub process_resident_memory_bytes: Gauge,
     /// Process open file descriptors (updated periodically)
     pub process_open_fds: Gauge,
+    /// Persistence: total successful state flushes
+    pub persistence_state_flush_total: Counter,
+    /// Persistence: total failed state flushes
+    pub persistence_state_flush_errors_total: Counter,
+    /// Persistence: total successful reputation flushes
+    pub persistence_reputation_flush_total: Counter,
+    /// Persistence: total failed reputation flushes
+    pub persistence_reputation_flush_errors_total: Counter,
+    /// Persistence: state.json file size in bytes
+    pub persistence_state_file_bytes: Gauge,
+    /// Persistence: reputation.json file size in bytes
+    pub persistence_reputation_file_bytes: Gauge,
+    /// Persistence: whether data_dir is available (1 = writable, 0 = in-memory)
+    pub persistence_available: Gauge,
     /// Track known label values for cardinality cap
     known_users: DashSet<String>,
     max_labels: u32,
@@ -268,6 +282,55 @@ impl MetricsRegistry {
             process_open_fds.clone(),
         );
 
+        let persistence_state_flush_total = Counter::default();
+        registry.register(
+            "sks5_persistence_state_flush_total",
+            "Total successful state file flushes",
+            persistence_state_flush_total.clone(),
+        );
+
+        let persistence_state_flush_errors_total = Counter::default();
+        registry.register(
+            "sks5_persistence_state_flush_errors_total",
+            "Total failed state file flushes",
+            persistence_state_flush_errors_total.clone(),
+        );
+
+        let persistence_reputation_flush_total = Counter::default();
+        registry.register(
+            "sks5_persistence_reputation_flush_total",
+            "Total successful reputation file flushes",
+            persistence_reputation_flush_total.clone(),
+        );
+
+        let persistence_reputation_flush_errors_total = Counter::default();
+        registry.register(
+            "sks5_persistence_reputation_flush_errors_total",
+            "Total failed reputation file flushes",
+            persistence_reputation_flush_errors_total.clone(),
+        );
+
+        let persistence_state_file_bytes = Gauge::default();
+        registry.register(
+            "sks5_persistence_state_file_bytes",
+            "Size of state.json file in bytes",
+            persistence_state_file_bytes.clone(),
+        );
+
+        let persistence_reputation_file_bytes = Gauge::default();
+        registry.register(
+            "sks5_persistence_reputation_file_bytes",
+            "Size of reputation.json file in bytes",
+            persistence_reputation_file_bytes.clone(),
+        );
+
+        let persistence_available = Gauge::default();
+        registry.register(
+            "sks5_persistence_available",
+            "Whether persistence data directory is available (1 = writable, 0 = in-memory)",
+            persistence_available.clone(),
+        );
+
         Self {
             registry,
             connections_active,
@@ -291,6 +354,13 @@ impl MetricsRegistry {
             dns_cache_misses_total,
             process_resident_memory_bytes,
             process_open_fds,
+            persistence_state_flush_total,
+            persistence_state_flush_errors_total,
+            persistence_reputation_flush_total,
+            persistence_reputation_flush_errors_total,
+            persistence_state_file_bytes,
+            persistence_reputation_file_bytes,
+            persistence_available,
             known_users: DashSet::new(),
             max_labels,
         }

@@ -98,6 +98,7 @@ async fn start_ssh_server(config: AppConfig) -> (u16, tokio::task::JoinHandle<()
         alert_engine: None,
         start_time: std::time::Instant::now(),
         kick_tokens: std::sync::Arc::new(dashmap::DashMap::new()),
+        userdata_store: None,
     });
 
     let key_pair =

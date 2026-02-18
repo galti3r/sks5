@@ -87,6 +87,7 @@ fn validate_config(config: &AppConfig) -> Result<()> {
     validate_users(config)?;
     validate_api(config)?;
     validate_webhooks(config)?;
+    validate_persistence(config)?;
     Ok(())
 }
 
@@ -304,6 +305,72 @@ fn validate_socks5_handshake_timeout(config: &AppConfig) -> Result<()> {
             timeout
         );
     }
+    Ok(())
+}
+
+fn validate_persistence(config: &AppConfig) -> Result<()> {
+    let state = &config.persistence.state;
+    if state.flush_interval_secs < 5 || state.flush_interval_secs > 3600 {
+        anyhow::bail!(
+            "persistence.state.flush_interval_secs must be 5-3600 (got {})",
+            state.flush_interval_secs
+        );
+    }
+    if state.ip_reputation_flush_interval_secs < 30
+        || state.ip_reputation_flush_interval_secs > 3600
+    {
+        anyhow::bail!(
+            "persistence.state.ip_reputation_flush_interval_secs must be 30-3600 (got {})",
+            state.ip_reputation_flush_interval_secs
+        );
+    }
+    if state.ip_reputation_min_score > 1000 {
+        anyhow::bail!(
+            "persistence.state.ip_reputation_min_score must be 0-1000 (got {})",
+            state.ip_reputation_min_score
+        );
+    }
+    if state.inactive_user_retention_days > 3650 {
+        anyhow::bail!(
+            "persistence.state.inactive_user_retention_days must be 0-3650 (got {})",
+            state.inactive_user_retention_days
+        );
+    }
+
+    let ud = &config.persistence.userdata;
+    if ud.shell_history_max > 10000 {
+        anyhow::bail!(
+            "persistence.userdata.shell_history_max must be 0-10000 (got {})",
+            ud.shell_history_max
+        );
+    }
+    if ud.shell_history_flush_secs < 5 || ud.shell_history_flush_secs > 600 {
+        anyhow::bail!(
+            "persistence.userdata.shell_history_flush_secs must be 5-600 (got {})",
+            ud.shell_history_flush_secs
+        );
+    }
+    if ud.bookmarks_max > 1000 {
+        anyhow::bail!(
+            "persistence.userdata.bookmarks_max must be 0-1000 (got {})",
+            ud.bookmarks_max
+        );
+    }
+    if ud.inactive_retention_days > 3650 {
+        anyhow::bail!(
+            "persistence.userdata.inactive_retention_days must be 0-3650 (got {})",
+            ud.inactive_retention_days
+        );
+    }
+
+    let ch = &config.persistence.config_history;
+    if ch.max_entries < 1 || ch.max_entries > 500 {
+        anyhow::bail!(
+            "persistence.config_history.max_entries must be 1-500 (got {})",
+            ch.max_entries
+        );
+    }
+
     Ok(())
 }
 
@@ -655,5 +722,261 @@ password_hash = "{hash}"
             hash = FAKE_HASH,
         );
         assert!(parse_config(&toml).is_err());
+    }
+
+    // --- Persistence config tests ---
+
+    #[test]
+    fn test_persistence_defaults_applied() {
+        let toml = format!("{}{}", minimal_config(""), user_block("test", ""));
+        let config = parse_config(&toml).unwrap();
+        assert!(config.persistence.state.enabled);
+        assert_eq!(config.persistence.state.flush_interval_secs, 30);
+        assert_eq!(config.persistence.state.ip_reputation_min_score, 10);
+        assert_eq!(
+            config.persistence.state.ip_reputation_flush_interval_secs,
+            300
+        );
+        assert_eq!(config.persistence.state.inactive_user_retention_days, 30);
+        assert!(config.persistence.userdata.enabled);
+        assert_eq!(config.persistence.userdata.shell_history_max, 100);
+        assert_eq!(config.persistence.userdata.shell_history_flush_secs, 60);
+        assert_eq!(config.persistence.userdata.bookmarks_max, 50);
+        assert_eq!(config.persistence.userdata.inactive_retention_days, 90);
+        assert!(config.persistence.config_history.enabled);
+        assert_eq!(config.persistence.config_history.max_entries, 50);
+        assert!(config.persistence.data_dir.is_none());
+    }
+
+    #[test]
+    fn test_persistence_custom_values() {
+        let toml = format!(
+            r##"
+[server]
+ssh_listen = "0.0.0.0:2222"
+
+[persistence]
+data_dir = "/var/lib/sks5"
+
+[persistence.state]
+enabled = false
+flush_interval_secs = 60
+ip_reputation_min_score = 25
+ip_reputation_flush_interval_secs = 600
+inactive_user_retention_days = 7
+
+[persistence.userdata]
+enabled = true
+shell_history_max = 500
+shell_history_flush_secs = 30
+bookmarks_max = 100
+inactive_retention_days = 180
+
+[persistence.config_history]
+enabled = false
+max_entries = 10
+
+[[users]]
+username = "test"
+password_hash = "{hash}"
+"##,
+            hash = FAKE_HASH,
+        );
+        let config = parse_config(&toml).unwrap();
+        assert_eq!(
+            config.persistence.data_dir.as_deref(),
+            Some(std::path::Path::new("/var/lib/sks5"))
+        );
+        assert!(!config.persistence.state.enabled);
+        assert_eq!(config.persistence.state.flush_interval_secs, 60);
+        assert_eq!(config.persistence.state.ip_reputation_min_score, 25);
+        assert_eq!(
+            config.persistence.state.ip_reputation_flush_interval_secs,
+            600
+        );
+        assert_eq!(config.persistence.state.inactive_user_retention_days, 7);
+        assert!(config.persistence.userdata.enabled);
+        assert_eq!(config.persistence.userdata.shell_history_max, 500);
+        assert_eq!(config.persistence.userdata.shell_history_flush_secs, 30);
+        assert_eq!(config.persistence.userdata.bookmarks_max, 100);
+        assert_eq!(config.persistence.userdata.inactive_retention_days, 180);
+        assert!(!config.persistence.config_history.enabled);
+        assert_eq!(config.persistence.config_history.max_entries, 10);
+    }
+
+    #[test]
+    fn test_persistence_flush_interval_too_low() {
+        let toml = format!(
+            r##"
+[server]
+ssh_listen = "0.0.0.0:2222"
+
+[persistence.state]
+flush_interval_secs = 2
+
+[[users]]
+username = "test"
+password_hash = "{hash}"
+"##,
+            hash = FAKE_HASH,
+        );
+        assert!(parse_config(&toml).is_err());
+    }
+
+    #[test]
+    fn test_persistence_flush_interval_too_high() {
+        let toml = format!(
+            r##"
+[server]
+ssh_listen = "0.0.0.0:2222"
+
+[persistence.state]
+flush_interval_secs = 7200
+
+[[users]]
+username = "test"
+password_hash = "{hash}"
+"##,
+            hash = FAKE_HASH,
+        );
+        assert!(parse_config(&toml).is_err());
+    }
+
+    #[test]
+    fn test_persistence_ip_rep_flush_too_low() {
+        let toml = format!(
+            r##"
+[server]
+ssh_listen = "0.0.0.0:2222"
+
+[persistence.state]
+ip_reputation_flush_interval_secs = 10
+
+[[users]]
+username = "test"
+password_hash = "{hash}"
+"##,
+            hash = FAKE_HASH,
+        );
+        assert!(parse_config(&toml).is_err());
+    }
+
+    #[test]
+    fn test_persistence_config_history_max_zero_rejected() {
+        let toml = format!(
+            r##"
+[server]
+ssh_listen = "0.0.0.0:2222"
+
+[persistence.config_history]
+max_entries = 0
+
+[[users]]
+username = "test"
+password_hash = "{hash}"
+"##,
+            hash = FAKE_HASH,
+        );
+        assert!(parse_config(&toml).is_err());
+    }
+
+    #[test]
+    fn test_persistence_config_history_max_too_high() {
+        let toml = format!(
+            r##"
+[server]
+ssh_listen = "0.0.0.0:2222"
+
+[persistence.config_history]
+max_entries = 999
+
+[[users]]
+username = "test"
+password_hash = "{hash}"
+"##,
+            hash = FAKE_HASH,
+        );
+        assert!(parse_config(&toml).is_err());
+    }
+
+    #[test]
+    fn test_persistence_shell_history_flush_too_low() {
+        let toml = format!(
+            r##"
+[server]
+ssh_listen = "0.0.0.0:2222"
+
+[persistence.userdata]
+shell_history_flush_secs = 1
+
+[[users]]
+username = "test"
+password_hash = "{hash}"
+"##,
+            hash = FAKE_HASH,
+        );
+        assert!(parse_config(&toml).is_err());
+    }
+
+    #[test]
+    fn test_persistence_boundary_values_accepted() {
+        let toml = format!(
+            r##"
+[server]
+ssh_listen = "0.0.0.0:2222"
+
+[persistence.state]
+flush_interval_secs = 5
+ip_reputation_flush_interval_secs = 30
+ip_reputation_min_score = 0
+inactive_user_retention_days = 0
+
+[persistence.userdata]
+shell_history_max = 0
+shell_history_flush_secs = 5
+bookmarks_max = 0
+inactive_retention_days = 0
+
+[persistence.config_history]
+max_entries = 1
+
+[[users]]
+username = "test"
+password_hash = "{hash}"
+"##,
+            hash = FAKE_HASH,
+        );
+        assert!(parse_config(&toml).is_ok());
+    }
+
+    #[test]
+    fn test_persistence_max_boundary_values_accepted() {
+        let toml = format!(
+            r##"
+[server]
+ssh_listen = "0.0.0.0:2222"
+
+[persistence.state]
+flush_interval_secs = 3600
+ip_reputation_flush_interval_secs = 3600
+ip_reputation_min_score = 1000
+inactive_user_retention_days = 3650
+
+[persistence.userdata]
+shell_history_max = 10000
+shell_history_flush_secs = 600
+bookmarks_max = 1000
+inactive_retention_days = 3650
+
+[persistence.config_history]
+max_entries = 500
+
+[[users]]
+username = "test"
+password_hash = "{hash}"
+"##,
+            hash = FAKE_HASH,
+        );
+        assert!(parse_config(&toml).is_ok());
     }
 }

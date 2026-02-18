@@ -72,6 +72,7 @@ async fn start_socks5(config: AppConfig) -> TestServer {
         alert_engine: None,
         start_time: std::time::Instant::now(),
         kick_tokens: std::sync::Arc::new(dashmap::DashMap::new()),
+        userdata_store: None,
     });
 
     let task = tokio::spawn(async move {

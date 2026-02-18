@@ -548,6 +548,73 @@ All pipelines include:
 - Multi-arch Docker build + push to registry
 - Container vulnerability scanning (Trivy)
 
+## Persistence
+
+sks5 persists operational state across restarts: bans, auth failures, quotas, IP reputation scores, shell history, and bookmarks.
+
+### Data directory
+
+All persistent data is stored under a single directory (default: `./data/`, or `/data` in containers):
+
+```
+{data_dir}/
+  sks5.lock            # Exclusive lock — prevents dual-instance corruption
+  state.json           # Bans + quotas + auth failures (flush every 30s)
+  reputation.json      # IP reputation scores (flush every 300s)
+  users/{name}.json    # Per-user shell history + bookmarks
+  config-history/      # TOML snapshots before programmatic changes
+```
+
+### Configuration
+
+```toml
+[persistence]
+data_dir = "/data"                         # Override with SKS5_DATA_DIR env var
+
+[persistence.state]
+enabled = true
+flush_interval_secs = 30                   # State flush frequency
+ip_reputation_flush_interval_secs = 300    # Reputation flush frequency
+ip_reputation_min_score = 5                # Minimum score to persist
+
+[persistence.userdata]
+shell_history_max = 100                    # Max commands per user (FIFO)
+shell_history_flush_secs = 60              # Flush frequency
+
+[persistence.config_history]
+max_entries = 50                           # Max TOML snapshots to keep
+```
+
+### Docker volumes
+
+```bash
+# Named volume (recommended)
+docker run -v sks5-data:/data ghcr.io/galti3r/sks5:latest
+
+# Bind mount
+docker run -v ./my-data:/data ghcr.io/galti3r/sks5:latest
+```
+
+### Graceful degradation
+
+Persistence never prevents the server from running:
+- Data directory inaccessible: warning + pure in-memory mode
+- File corrupt/unreadable: warning + empty state for that subsystem
+- Flush failure (disk full): warning + retry next cycle
+- Lock conflict (another instance): fatal error (only exception)
+
+### Prometheus metrics
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `sks5_persistence_available` | Gauge | 1 = data_dir writable, 0 = in-memory |
+| `sks5_persistence_state_flush_total` | Counter | Successful state flushes |
+| `sks5_persistence_state_flush_errors_total` | Counter | Failed state flushes |
+| `sks5_persistence_reputation_flush_total` | Counter | Successful reputation flushes |
+| `sks5_persistence_reputation_flush_errors_total` | Counter | Failed reputation flushes |
+| `sks5_persistence_state_file_bytes` | Gauge | state.json file size |
+| `sks5_persistence_reputation_file_bytes` | Gauge | reputation.json file size |
+
 ## Testing
 
 ```bash

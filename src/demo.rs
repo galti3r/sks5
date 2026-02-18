@@ -213,6 +213,7 @@ pub fn build_demo_config(
         alerting: Default::default(),
         maintenance_windows: Vec::new(),
         connection_pool: Default::default(),
+        persistence: Default::default(),
     }
 }
 

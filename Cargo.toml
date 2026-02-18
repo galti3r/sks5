@@ -150,6 +150,10 @@ name = "e2e_backup_restore"
 path = "tests/e2e/backup_restore_test.rs"
 
 [[test]]
+name = "e2e_persistence"
+path = "tests/e2e/persistence_test.rs"
+
+[[test]]
 name = "e2e_cli"
 path = "tests/e2e/cli_e2e_test.rs"
 

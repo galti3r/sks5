@@ -6,6 +6,7 @@ use crate::config;
 use crate::config::types::AppConfig;
 use crate::context::AppContext;
 use crate::metrics::MetricsRegistry;
+use crate::persistence::PersistenceManager;
 use crate::proxy::ProxyEngine;
 use crate::quota::QuotaTracker;
 use crate::security::SecurityManager;
@@ -80,6 +81,28 @@ where
 
     let quota_tracker = Arc::new(QuotaTracker::new(&config.limits));
 
+    // Initialize persistence (data_dir, lockfile)
+    let persistence = Arc::new(PersistenceManager::init(
+        &config.persistence,
+        config_path.as_deref(),
+    )?);
+    metrics
+        .persistence_available
+        .set(if persistence.is_available() { 1 } else { 0 });
+
+    // Load persisted state (bans, auth_failures, quotas) if available
+    if persistence.is_available() && config.persistence.state.enabled {
+        persistence
+            .load_and_restore_state(&security, &quota_tracker)
+            .await;
+        persistence
+            .load_and_restore_reputation(
+                &security,
+                config.persistence.state.ip_reputation_min_score,
+            )
+            .await;
+    }
+
     // Wire the audit dropped counter to the Prometheus metric
     audit.set_dropped_metric(metrics.audit_events_dropped.clone());
 
@@ -88,6 +111,18 @@ where
             config.alerting.clone(),
             webhook_dispatcher.clone(),
             quota_tracker.clone(),
+        )))
+    } else {
+        None
+    };
+
+    // Initialize user data store
+    let userdata_store = if config.persistence.userdata.enabled && persistence.is_available() {
+        Some(Arc::new(crate::persistence::userdata::UserDataStore::new(
+            persistence.users_dir(),
+            config.persistence.userdata.shell_history_max as usize,
+            config.persistence.userdata.bookmarks_max as usize,
+            true,
         )))
     } else {
         None
@@ -172,6 +207,7 @@ where
         alert_engine: alert_engine.clone(),
         start_time: std::time::Instant::now(),
         kick_tokens: kick_tokens.clone(),
+        userdata_store: userdata_store.clone(),
     });
 
     // Run post-init hook (e.g. inject demo data)
@@ -251,6 +287,35 @@ where
     tokio::spawn(async move {
         handle_signals(signal_params).await;
     });
+
+    // Spawn state persistence flush tasks
+    if config.persistence.state.enabled {
+        crate::persistence::spawn_state_flush_task(
+            persistence.clone(),
+            security.clone(),
+            quota_tracker.clone(),
+            config.persistence.state.flush_interval_secs,
+            Some(metrics.clone()),
+            services_shutdown.clone(),
+        );
+        crate::persistence::spawn_reputation_flush_task(
+            persistence.clone(),
+            security.clone(),
+            config.persistence.state.ip_reputation_flush_interval_secs,
+            config.persistence.state.ip_reputation_min_score,
+            Some(metrics.clone()),
+            services_shutdown.clone(),
+        );
+    }
+
+    // Spawn user data persistence flush task
+    if let Some(ref store) = userdata_store {
+        crate::persistence::userdata::spawn_userdata_flush_task(
+            store.clone(),
+            config.persistence.userdata.shell_history_flush_secs,
+            services_shutdown.clone(),
+        );
+    }
 
     info!(addr = %config.server.ssh_listen, "SSH server listening");
 

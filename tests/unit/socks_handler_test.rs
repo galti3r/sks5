@@ -53,6 +53,7 @@ fn setup(app_config: AppConfig) -> Arc<AppContext> {
         alert_engine: None,
         start_time: std::time::Instant::now(),
         kick_tokens: std::sync::Arc::new(dashmap::DashMap::new()),
+        userdata_store: None,
     })
 }
 

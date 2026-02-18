@@ -16,6 +16,23 @@ pub struct Cli {
     #[arg(long)]
     pub log_level: Option<String>,
 
+    /// Force environment variables to override config file values.
+    /// Without this flag, env vars are ignored when a config file exists.
+    #[arg(long, env = "SKS5_FORCE_ENV")]
+    pub force_env: bool,
+
+    /// Override persistence data directory
+    #[arg(long, env = "SKS5_DATA_DIR")]
+    pub data_dir: Option<PathBuf>,
+
+    /// Override SSH listen address
+    #[arg(long)]
+    pub ssh_listen: Option<String>,
+
+    /// Generic config override(s): --set key=value (e.g. --set limits.max_connections=500)
+    #[arg(long = "set", value_name = "KEY=VALUE")]
+    pub overrides: Vec<String>,
+
     #[command(subcommand)]
     pub command: Option<Command>,
 }

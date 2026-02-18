@@ -70,6 +70,7 @@ async fn start_socks5_with_audit(config: AppConfig, audit_path: std::path::PathB
         alert_engine: None,
         start_time: std::time::Instant::now(),
         kick_tokens: std::sync::Arc::new(dashmap::DashMap::new()),
+        userdata_store: None,
     });
 
     let task = tokio::spawn(async move {

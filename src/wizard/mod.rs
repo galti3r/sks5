@@ -87,6 +87,7 @@ pub fn run_wizard(non_interactive: bool) -> Result<AppConfig> {
         alerting: AlertingConfig::default(),
         maintenance_windows: Vec::new(),
         connection_pool: ConnectionPoolConfig::default(),
+        persistence: Default::default(),
     };
 
     // Track which sections have been configured by the user.
@@ -304,6 +305,7 @@ fn build_non_interactive_config() -> Result<AppConfig> {
         alerting: AlertingConfig::default(),
         maintenance_windows: Vec::new(),
         connection_pool: ConnectionPoolConfig::default(),
+        persistence: Default::default(),
     })
 }
 

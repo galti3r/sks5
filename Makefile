@@ -3,7 +3,7 @@ SHELL := /bin/bash
 # Detect host architecture for musl target
 MUSL_TARGET := $(shell uname -m | sed 's/x86_64/x86_64-unknown-linux-musl/' | sed 's/aarch64/aarch64-unknown-linux-musl/')
 
-.PHONY: build build-debug build-static test test-unit test-e2e test-e2e-all test-e2e-browser test-screenshots test-perf test-e2e-podman test-compose test-compose-validate coverage run fmt clippy check docker-build docker-build-scratch docker-build-all docker-build-cross docker-build-multiarch docker-build-package docker-scan docker-build-scan docker-run docker-run-scratch compose-up compose-down hash-password clean security-scan test-all quick-start init completions manpage bench changelog install-act install-hooks ensure-podman-socket ci-lint ci-test ci-docker-lint ci-e2e ci validate validate-docker validate-plain clean-validation validate-ci validate-msrv validate-coverage validate-security setup
+.PHONY: build build-debug build-static test test-unit test-e2e test-e2e-all test-e2e-browser test-screenshots test-perf test-e2e-podman test-compose test-compose-validate coverage run fmt clippy check docker-build docker-build-scratch docker-build-all docker-build-cross docker-build-multiarch docker-build-package docker-scan docker-build-scan docker-run docker-run-scratch compose-up compose-down hash-password clean security-scan test-all quick-start init completions manpage bench changelog install-act install-hooks ensure-podman-socket ci-lint ci-test ci-docker-lint ci-e2e ci validate validate-docker validate-plain clean-validation validate-ci validate-msrv validate-coverage validate-security setup check-ci-sync
 
 build:
 	cargo build --release
@@ -321,6 +321,9 @@ ci-e2e: ensure-podman-socket
 
 ci: ci-lint ci-test ci-e2e ci-docker-lint
 	@echo "Local CI passed (lint + test + e2e + docker-lint)"
+
+check-ci-sync:
+	@./scripts/check-ci-test-sync.sh
 
 validate:
 	@./scripts/validate.sh

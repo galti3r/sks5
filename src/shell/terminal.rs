@@ -79,6 +79,19 @@ impl TerminalState {
         Self::default()
     }
 
+    /// Create a new TerminalState with pre-loaded history.
+    pub fn with_history(history: Vec<String>) -> Self {
+        Self {
+            history,
+            ..Default::default()
+        }
+    }
+
+    /// Get a reference to the command history.
+    pub fn history(&self) -> &[String] {
+        &self.history
+    }
+
     /// Process a byte of input, returns (echo_bytes, completed_line)
     pub fn process_byte(&mut self, byte: u8) -> (Vec<u8>, Option<String>) {
         // Handle ESC sequence state machine
