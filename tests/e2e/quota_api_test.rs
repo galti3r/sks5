@@ -315,7 +315,6 @@ async fn test_quota_monthly_connection_enforcement() {
 async fn test_rate_limiting_per_second() {
     let port = free_port().await;
     let hash = hash_pass("pass");
-    let (_port, qt) = start_api_with_quota(make_config(port, &hash)).await;
 
     let rate = RateLimitsConfig {
         connections_per_second: 2,
@@ -323,14 +322,40 @@ async fn test_rate_limiting_per_second() {
         connections_per_hour: 0,
     };
 
-    qt.record_connection("alice", None).unwrap();
-    qt.record_connection("alice", None).unwrap();
+    // Rate limiting uses a 1-second rolling window. All operations must land
+    // in the same wall-clock second, otherwise the bucket rotates and the
+    // count resets. Retry up to 5 times if we hit a second boundary.
+    let mut err = None;
+    for _ in 0..5 {
+        let (_port, qt) = start_api_with_quota(make_config(port, &hash)).await;
+        let config = make_config(0, &hash);
 
-    // 3rd should be rate-limited
-    let config = make_config(0, &hash);
-    let err = qt
-        .check_connection_rate("alice", &rate, &config.limits)
-        .unwrap_err();
+        let t0 = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        qt.record_connection("alice", None).unwrap();
+        qt.record_connection("alice", None).unwrap();
+
+        let t1 = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        if t0 != t1 {
+            // Crossed a second boundary — retry
+            continue;
+        }
+
+        err = Some(
+            qt.check_connection_rate("alice", &rate, &config.limits)
+                .unwrap_err(),
+        );
+        break;
+    }
+
+    let err = err.expect("failed to complete rate limit check within same second after 5 retries");
     assert!(err.contains("per-second"), "err: {err}");
 }
 
