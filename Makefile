@@ -249,6 +249,16 @@ setup:
 		       else \
 		         echo "  !! grype (no binary, no podman, no docker)"; \
 		       fi; }; }
+	@# JetBrains Mono font (required by VHS tapes)
+	@fc-list | grep -qi "JetBrains Mono" && echo "  ok JetBrains Mono" || \
+		{ echo "  .. JetBrains Mono"; \
+		  mkdir -p ~/.local/share/fonts \
+		  && curl -fsSL "https://github.com/JetBrains/JetBrainsMono/releases/download/v2.304/JetBrainsMono-2.304.zip" -o /tmp/JetBrainsMono.zip \
+		  && unzip -oqj /tmp/JetBrainsMono.zip "fonts/ttf/*.ttf" -d ~/.local/share/fonts/ \
+		  && fc-cache -f ~/.local/share/fonts/ \
+		  && rm -f /tmp/JetBrainsMono.zip \
+		  && echo "  ok JetBrains Mono (installed)" \
+		  || echo "  !! JetBrains Mono (failed — install manually: https://www.jetbrains.com/lp/mono/)"; }
 	@# Install git hooks
 	@$(MAKE) --no-print-directory install-hooks
 	@echo ""

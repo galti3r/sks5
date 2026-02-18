@@ -527,9 +527,10 @@ jobs:
         run: vhs contrib/demo.tape
 
       - name: Generate wizard GIF
-        # Interactive TUI wizard is timing-sensitive — best-effort in CI
         run: vhs contrib/wizard.tape
-        continue-on-error: true
+
+      - name: Generate wizard-interactive GIF
+        run: vhs contrib/wizard-interactive.tape
 
       - name: Upload demo GIF
         uses: actions/upload-artifact@v6
@@ -540,10 +541,16 @@ jobs:
 
       - name: Upload wizard GIF
         uses: actions/upload-artifact@v6
-        if: hashFiles('contrib/wizard.gif') != ''
         with:
           name: wizard-gif
           path: contrib/wizard.gif
+          retention-days: 1
+
+      - name: Upload wizard-interactive GIF
+        uses: actions/upload-artifact@v6
+        with:
+          name: wizard-interactive-gif
+          path: contrib/wizard-interactive.gif
           retention-days: 1
 
       - name: Stop sks5
@@ -1400,6 +1407,13 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           name: wizard-gif
+          path: _site
+        continue-on-error: true
+
+      - name: Download wizard-interactive GIF artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: wizard-interactive-gif
           path: _site
         continue-on-error: true
 

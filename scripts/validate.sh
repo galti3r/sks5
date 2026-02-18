@@ -141,6 +141,7 @@ LLVM_COV_AVAILABLE=false
 MSRV_AVAILABLE=false
 VHS_AVAILABLE=false
 VHS_VIA=""
+VHS_FONT_OK=false
 AUDIT_AVAILABLE=false
 DENY_AVAILABLE=false
 TRIVY_AVAILABLE=false
@@ -264,6 +265,16 @@ detect_tools() {
         VHS_AVAILABLE=true; VHS_VIA="podman"
     elif $DOCKER_AVAILABLE; then
         VHS_AVAILABLE=true; VHS_VIA="docker"
+    fi
+
+    # VHS font check: JetBrains Mono required for tape recordings
+    if $VHS_AVAILABLE; then
+        if fc-list 2>/dev/null | grep -qi "JetBrains Mono"; then
+            VHS_FONT_OK=true
+        else
+            VHS_AVAILABLE=false
+            VHS_VIA="no font"
+        fi
     fi
 
     echo -e "${CYAN}[Tools]${NC} " \
@@ -831,6 +842,8 @@ show_plan() {
             echo -e "  ${BLUE}${BOLD}VHS${NC}"
             plan_run "VHS tapes ($VHS_VIA)" "${tape_count} tapes"
         fi
+    elif [[ "$VHS_VIA" == "no font" ]]; then
+        plan_not "VHS recordings     -> missing JetBrains Mono font (make setup)"
     else
         plan_not "VHS recordings"
     fi
