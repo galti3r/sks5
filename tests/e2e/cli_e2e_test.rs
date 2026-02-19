@@ -408,7 +408,13 @@ fn test_health_check_failure() {
 fn test_health_check_invalid_addr() {
     let output = Command::cargo_bin("sks5")
         .unwrap()
-        .args(["health-check", "--addr", "not-a-valid-addr", "--timeout", "1"])
+        .args([
+            "health-check",
+            "--addr",
+            "not-a-valid-addr",
+            "--timeout",
+            "1",
+        ])
         .output()
         .expect("failed to run sks5 health-check");
 
@@ -425,7 +431,13 @@ fn test_health_check_invalid_addr() {
 fn test_ssh_config_default_output() {
     let output = Command::cargo_bin("sks5")
         .unwrap()
-        .args(["ssh-config", "--user", "alice", "--host", "proxy.example.com"])
+        .args([
+            "ssh-config",
+            "--user",
+            "alice",
+            "--host",
+            "proxy.example.com",
+        ])
         .output()
         .expect("failed to run sks5 ssh-config");
 
@@ -436,7 +448,10 @@ fn test_ssh_config_default_output() {
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Host sks5-proxy"), "should contain default alias");
+    assert!(
+        stdout.contains("Host sks5-proxy"),
+        "should contain default alias"
+    );
     assert!(
         stdout.contains("HostName proxy.example.com"),
         "should contain hostname"

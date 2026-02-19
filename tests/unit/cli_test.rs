@@ -409,9 +409,15 @@ fn health_check_custom_args() {
 // ---------------------------------------------------------------------------
 #[test]
 fn ssh_config_required_args() {
-    let cli =
-        Cli::try_parse_from(["sks5", "ssh-config", "--user", "alice", "--host", "proxy.example.com"])
-            .unwrap();
+    let cli = Cli::try_parse_from([
+        "sks5",
+        "ssh-config",
+        "--user",
+        "alice",
+        "--host",
+        "proxy.example.com",
+    ])
+    .unwrap();
     match cli.command {
         Some(Command::SshConfig {
             user,
