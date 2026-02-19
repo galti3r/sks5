@@ -544,7 +544,7 @@ async fn screenshot_user_detail_modal() {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Click first username in user table to open modal
-    page.evaluate("document.querySelector('#userTable a[onclick]').click()")
+    page.evaluate("document.querySelector('#userTable a.user-link[data-username]').click()")
         .await
         .unwrap();
     tokio::time::sleep(Duration::from_millis(1500)).await;

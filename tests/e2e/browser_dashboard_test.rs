@@ -676,7 +676,7 @@ async fn test_dashboard_user_detail_modal() {
     .await;
 
     // Click the username link to open modal
-    page.evaluate("document.querySelector('#userTable a[onclick]').click()")
+    page.evaluate("document.querySelector('#userTable a.user-link[data-username]').click()")
         .await
         .unwrap();
     tokio::time::sleep(Duration::from_millis(1500)).await;
