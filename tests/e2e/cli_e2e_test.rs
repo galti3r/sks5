@@ -341,3 +341,211 @@ fn test_check_config_invalid() {
         "check-config on invalid config should exit non-zero"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Test 11: health-check succeeds against a listening port
+// ---------------------------------------------------------------------------
+#[test]
+fn test_health_check_success() {
+    // Bind a TCP listener to get a port, keep it alive
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("failed to bind TCP listener");
+    let port = listener.local_addr().unwrap().port();
+    let addr = format!("127.0.0.1:{}", port);
+
+    let output = Command::cargo_bin("sks5")
+        .unwrap()
+        .args(["health-check", "--addr", &addr, "--timeout", "2"])
+        .output()
+        .expect("failed to run sks5 health-check");
+
+    assert!(
+        output.status.success(),
+        "health-check should exit 0 for listening port, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("OK"),
+        "health-check stdout should contain OK"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 12: health-check fails against a non-listening port
+// ---------------------------------------------------------------------------
+#[test]
+fn test_health_check_failure() {
+    // Bind and immediately drop to get a port that has no listener
+    let port = {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").expect("failed to bind");
+        l.local_addr().unwrap().port()
+    };
+    let addr = format!("127.0.0.1:{}", port);
+
+    let output = Command::cargo_bin("sks5")
+        .unwrap()
+        .args(["health-check", "--addr", &addr, "--timeout", "1"])
+        .output()
+        .expect("failed to run sks5 health-check");
+
+    assert!(
+        !output.status.success(),
+        "health-check should exit non-zero for non-listening port"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("FAIL"),
+        "health-check stderr should contain FAIL"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 13: health-check with invalid address
+// ---------------------------------------------------------------------------
+#[test]
+fn test_health_check_invalid_addr() {
+    let output = Command::cargo_bin("sks5")
+        .unwrap()
+        .args(["health-check", "--addr", "not-a-valid-addr", "--timeout", "1"])
+        .output()
+        .expect("failed to run sks5 health-check");
+
+    assert!(
+        !output.status.success(),
+        "health-check should exit non-zero for invalid address"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 14: ssh-config default output
+// ---------------------------------------------------------------------------
+#[test]
+fn test_ssh_config_default_output() {
+    let output = Command::cargo_bin("sks5")
+        .unwrap()
+        .args(["ssh-config", "--user", "alice", "--host", "proxy.example.com"])
+        .output()
+        .expect("failed to run sks5 ssh-config");
+
+    assert!(
+        output.status.success(),
+        "ssh-config should exit 0, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Host sks5-proxy"), "should contain default alias");
+    assert!(
+        stdout.contains("HostName proxy.example.com"),
+        "should contain hostname"
+    );
+    assert!(stdout.contains("Port 2222"), "should contain default port");
+    assert!(stdout.contains("User alice"), "should contain username");
+    assert!(
+        stdout.contains("StrictHostKeyChecking no"),
+        "should contain StrictHostKeyChecking"
+    );
+    // Should NOT contain DynamicForward when not specified
+    assert!(
+        !stdout.contains("DynamicForward"),
+        "should not contain DynamicForward when not specified"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 15: ssh-config with custom name and dynamic forward
+// ---------------------------------------------------------------------------
+#[test]
+fn test_ssh_config_custom_name_and_forward() {
+    let output = Command::cargo_bin("sks5")
+        .unwrap()
+        .args([
+            "ssh-config",
+            "--user",
+            "bob",
+            "--host",
+            "10.0.0.1",
+            "--port",
+            "3333",
+            "--name",
+            "myproxy",
+            "--dynamic-forward",
+            "1080",
+        ])
+        .output()
+        .expect("failed to run sks5 ssh-config");
+
+    assert!(
+        output.status.success(),
+        "ssh-config with all flags should exit 0, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Host myproxy"), "should use custom alias");
+    assert!(
+        stdout.contains("HostName 10.0.0.1"),
+        "should contain custom host"
+    );
+    assert!(stdout.contains("Port 3333"), "should contain custom port");
+    assert!(stdout.contains("User bob"), "should contain username");
+    assert!(
+        stdout.contains("DynamicForward 1080"),
+        "should contain DynamicForward"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 16: generate-totp output
+// ---------------------------------------------------------------------------
+#[test]
+fn test_generate_totp_output() {
+    let output = Command::cargo_bin("sks5")
+        .unwrap()
+        .args(["generate-totp", "--username", "alice"])
+        .output()
+        .expect("failed to run sks5 generate-totp");
+
+    assert!(
+        output.status.success(),
+        "generate-totp should exit 0, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("TOTP secret for 'alice'"),
+        "should contain TOTP secret header"
+    );
+    assert!(
+        stdout.contains("otpauth://totp/"),
+        "should contain OTPAuth URL"
+    );
+    assert!(
+        stdout.contains("totp_secret ="),
+        "should contain config snippet"
+    );
+    assert!(
+        stdout.contains("totp_enabled = true"),
+        "should contain totp_enabled = true"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 17: generate-totp without --username fails
+// ---------------------------------------------------------------------------
+#[test]
+fn test_generate_totp_missing_username() {
+    let output = Command::cargo_bin("sks5")
+        .unwrap()
+        .args(["generate-totp"])
+        .output()
+        .expect("failed to run sks5 generate-totp");
+
+    assert!(
+        !output.status.success(),
+        "generate-totp without --username should exit non-zero"
+    );
+}

@@ -365,3 +365,149 @@ fn init_short_output_flag() {
         _ => panic!("expected Init command"),
     }
 }
+
+// ---------------------------------------------------------------------------
+// Test 23: health-check subcommand defaults
+// ---------------------------------------------------------------------------
+#[test]
+fn health_check_defaults() {
+    let cli = Cli::try_parse_from(["sks5", "health-check"]).unwrap();
+    match cli.command {
+        Some(Command::HealthCheck { addr, timeout }) => {
+            assert_eq!(addr, "127.0.0.1:2222");
+            assert_eq!(timeout, 5);
+        }
+        _ => panic!("expected HealthCheck command"),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Test 24: health-check subcommand custom args
+// ---------------------------------------------------------------------------
+#[test]
+fn health_check_custom_args() {
+    let cli = Cli::try_parse_from([
+        "sks5",
+        "health-check",
+        "--addr",
+        "10.0.0.1:3333",
+        "--timeout",
+        "10",
+    ])
+    .unwrap();
+    match cli.command {
+        Some(Command::HealthCheck { addr, timeout }) => {
+            assert_eq!(addr, "10.0.0.1:3333");
+            assert_eq!(timeout, 10);
+        }
+        _ => panic!("expected HealthCheck command"),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Test 25: ssh-config subcommand with required args
+// ---------------------------------------------------------------------------
+#[test]
+fn ssh_config_required_args() {
+    let cli =
+        Cli::try_parse_from(["sks5", "ssh-config", "--user", "alice", "--host", "proxy.example.com"])
+            .unwrap();
+    match cli.command {
+        Some(Command::SshConfig {
+            user,
+            host,
+            port,
+            name,
+            dynamic_forward,
+        }) => {
+            assert_eq!(user, "alice");
+            assert_eq!(host, "proxy.example.com");
+            assert_eq!(port, 2222); // default
+            assert!(name.is_none());
+            assert!(dynamic_forward.is_none());
+        }
+        _ => panic!("expected SshConfig command"),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Test 26: ssh-config subcommand with all flags
+// ---------------------------------------------------------------------------
+#[test]
+fn ssh_config_all_flags() {
+    let cli = Cli::try_parse_from([
+        "sks5",
+        "ssh-config",
+        "--user",
+        "bob",
+        "--host",
+        "10.0.0.1",
+        "--port",
+        "3333",
+        "--name",
+        "myproxy",
+        "--dynamic-forward",
+        "1080",
+    ])
+    .unwrap();
+    match cli.command {
+        Some(Command::SshConfig {
+            user,
+            host,
+            port,
+            name,
+            dynamic_forward,
+        }) => {
+            assert_eq!(user, "bob");
+            assert_eq!(host, "10.0.0.1");
+            assert_eq!(port, 3333);
+            assert_eq!(name.as_deref(), Some("myproxy"));
+            assert_eq!(dynamic_forward, Some(1080));
+        }
+        _ => panic!("expected SshConfig command"),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Test 27: ssh-config missing required --user fails
+// ---------------------------------------------------------------------------
+#[test]
+fn ssh_config_missing_user_fails() {
+    let result = Cli::try_parse_from(["sks5", "ssh-config", "--host", "localhost"]);
+    assert!(result.is_err(), "ssh-config without --user should fail");
+}
+
+// ---------------------------------------------------------------------------
+// Test 28: ssh-config missing required --host fails
+// ---------------------------------------------------------------------------
+#[test]
+fn ssh_config_missing_host_fails() {
+    let result = Cli::try_parse_from(["sks5", "ssh-config", "--user", "alice"]);
+    assert!(result.is_err(), "ssh-config without --host should fail");
+}
+
+// ---------------------------------------------------------------------------
+// Test 29: generate-totp subcommand with username
+// ---------------------------------------------------------------------------
+#[test]
+fn generate_totp_parses_username() {
+    let cli = Cli::try_parse_from(["sks5", "generate-totp", "--username", "alice"]).unwrap();
+    match cli.command {
+        Some(Command::GenerateTotp { username }) => {
+            assert_eq!(username, "alice");
+        }
+        _ => panic!("expected GenerateTotp command"),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Test 30: generate-totp missing required --username fails
+// ---------------------------------------------------------------------------
+#[test]
+fn generate_totp_missing_username_fails() {
+    let result = Cli::try_parse_from(["sks5", "generate-totp"]);
+    assert!(
+        result.is_err(),
+        "generate-totp without --username should fail"
+    );
+}

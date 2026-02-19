@@ -2,7 +2,7 @@
 # sks5 Comprehensive Validation Script v2
 # Lane-parallel validation with fail-fast, live dashboard, and Gantt summary
 # Usage: ./scripts/validate.sh [--skip-browser] [--skip-coverage] [--skip-act]
-#                               [--with-docker] [--plain] [--dry-run]
+#                               [--skip-vhs] [--with-docker] [--plain] [--dry-run]
 set -uo pipefail
 
 # ===========================================================================
@@ -20,6 +20,7 @@ TOTAL_START=$SECONDS
 SKIP_BROWSER=false
 SKIP_COVERAGE=false
 SKIP_ACT=false
+SKIP_VHS=false
 WITH_DOCKER=false
 DRY_RUN=false
 FORCE_PLAIN=false
@@ -29,6 +30,7 @@ for arg in "$@"; do
         --skip-browser)  SKIP_BROWSER=true ;;
         --skip-coverage) SKIP_COVERAGE=true ;;
         --skip-act)      SKIP_ACT=true ;;
+        --skip-vhs)      SKIP_VHS=true ;;
         --with-docker)   WITH_DOCKER=true ;;
         --plain)         FORCE_PLAIN=true ;;
         --dry-run)       DRY_RUN=true ;;
@@ -39,6 +41,7 @@ for arg in "$@"; do
             echo "  --skip-browser   Skip browser E2E tests (requires Podman + Chrome)"
             echo "  --skip-coverage  Skip code coverage generation"
             echo "  --skip-act       Skip act-based CI jobs even if act is available"
+            echo "  --skip-vhs       Skip VHS tape recordings"
             echo "  --with-docker    Include Docker image build + security scan"
             echo "  --plain          Force plain output (no live dashboard)"
             echo "  --dry-run        Show planned execution without running"
@@ -852,13 +855,15 @@ show_plan() {
     fi
 
     # VHS
-    if $VHS_AVAILABLE; then
+    if ! $SKIP_VHS && $VHS_AVAILABLE; then
         local tape_count=0
         for tape in "$PROJECT_ROOT"/contrib/*.tape; do [[ -f "$tape" ]] && tape_count=$((tape_count + 1)); done
         if (( tape_count > 0 )); then
             echo -e "  ${BLUE}${BOLD}VHS${NC}"
             plan_run "VHS tapes ($VHS_VIA)" "${tape_count} tapes"
         fi
+    elif $SKIP_VHS; then
+        plan_not "VHS recordings (--skip-vhs)"
     elif [[ "$VHS_VIA" == "no font" ]]; then
         plan_not "VHS recordings     -> missing JetBrains Mono font (make setup)"
     else
@@ -951,7 +956,7 @@ register_lanes() {
         register_lane "CI" "CI"
     fi
 
-    if $VHS_AVAILABLE; then
+    if ! $SKIP_VHS && $VHS_AVAILABLE; then
         local tape_count=0
         for tape in "$PROJECT_ROOT"/contrib/*.tape; do [[ -f "$tape" ]] && tape_count=$((tape_count + 1)); done
         if (( tape_count > 0 )); then
@@ -1081,7 +1086,7 @@ launch_initial_tasks() {
     fi
 
     # --- VHS ---
-    if $VHS_AVAILABLE; then
+    if ! $SKIP_VHS && $VHS_AVAILABLE; then
         local vhs_cmd
         vhs_cmd=$(vhs_command)
         for tape in "$PROJECT_ROOT"/contrib/*.tape; do
@@ -1097,6 +1102,8 @@ launch_initial_tasks() {
                 run_task "VHS: $tape_name" "VHS" $vhs_cmd "$tape_path"
             fi
         done
+    elif $SKIP_VHS; then
+        skip_task "VHS recordings (--skip-vhs)"
     fi
 
     # --- Browser E2E: launched later via maybe_launch_dependents("Compile tests") ---

@@ -27,8 +27,27 @@ services:
       - sks5-data-main:/data
     stop_grace_period: 35s
     restart: unless-stopped
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=10M
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "1.0"
+        reservations:
+          memory: 64M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     healthcheck:
-      test: ["CMD", "/sks5", "health-check", "--addr", "127.0.0.1:2222", "--timeout", "3"]
+      test: ["CMD", "sks5", "health-check", "--addr", "127.0.0.1:2222", "--timeout", "3"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -102,6 +121,25 @@ services:
     volumes:
       - sks5-data:/data
     restart: unless-stopped
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=10M
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "1.0"
+        reservations:
+          memory: 64M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     healthcheck:
       test: ["CMD", "sks5", "health-check", "--addr", "127.0.0.1:2222", "--timeout", "3"]
       interval: 30s
@@ -133,6 +171,25 @@ services:
       - ./tls:/etc/sks5/tls:ro
       - sks5-data-tls:/data
     restart: unless-stopped
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=10M
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "1.0"
+        reservations:
+          memory: 64M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     healthcheck:
       test: ["CMD", "sks5", "health-check", "--addr", "127.0.0.1:2222", "--timeout", "3"]
       interval: 30s

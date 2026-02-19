@@ -25,7 +25,7 @@ flowchart LR
         direction TB
         SSH["SSH :2222"]
         SOCKS5["SOCKS5 :1080"]
-        REST["REST API + Dashboard :8080"]
+        REST["REST API + Dashboard :9091"]
 
         subgraph pipeline["Request Pipeline"]
             direction LR
@@ -68,7 +68,7 @@ flowchart LR
 
 | Category | Features |
 |----------|----------|
-| :satellite: SSH & Proxy | SSH dynamic forwarding (`-D`), local forwarding (`-L`), standalone SOCKS5, TLS SOCKS5, connection pooling, smart retry with exponential backoff |
+| :satellite: SSH & Proxy | SSH dynamic forwarding (`-D`), local forwarding (`-L`), standalone SOCKS5, TLS SOCKS5, UDP relay (SOCKS5 UDP ASSOCIATE), connection pooling, smart retry with exponential backoff |
 | :lock: Authentication | Argon2id passwords, SSH public keys, SSH certificates, TOTP 2FA, auth method chaining |
 | :shield: Access Control | Per-user and global ACL, CIDR/FQDN wildcards, GeoIP country filtering, anti-SSRF guard, time-based access windows, account expiration |
 | :no_entry: Security | Auto-ban (fail2ban-style), IP reputation scoring, pre-auth rate limiting, SFTP/SCP blocked, password zeroization, webhook SSRF protection |
@@ -96,8 +96,8 @@ Available on both `ghcr.io/galti3r/sks5` and `dockerhubgalti3r/sks5`:
 
 | Tag | Base | Size | Shell | Use case |
 |-----|------|------|-------|----------|
-| `latest` / `0.x.x` | Alpine 3.21 | ~12 MB | Yes | Production (default) |
-| `latest-alpine` / `0.x.x-alpine` | Alpine 3.21 | ~12 MB | Yes | Alias for `latest` |
+| `latest` / `0.x.x` | Alpine 3.22 | ~12 MB | Yes | Production (default) |
+| `latest-alpine` / `0.x.x-alpine` | Alpine 3.22 | ~12 MB | Yes | Alias for `latest` |
 | `latest-scratch` / `0.x.x-scratch` | scratch | ~5 MB | No | Minimal attack surface |
 
 ### Cargo
@@ -187,7 +187,7 @@ curl --socks5 localhost:1080 http://example.com
 
 # Local port forwarding
 ssh -L 8080:httpbin.org:80 -N alice@localhost -p 2222
-curl http://localhost:8080/ip
+curl http://localhost:9091/ip
 
 # Standalone SOCKS5
 curl --socks5 alice:password@localhost:1080 http://example.com
@@ -408,20 +408,22 @@ The HTTP API is protected by Bearer token (configured in `api.token`).
 
 ```bash
 # Server status
-curl -H "Authorization: Bearer <token>" http://localhost:8080/api/status
+curl -H "Authorization: Bearer <token>" http://localhost:9091/api/status
 
 # List users
-curl -H "Authorization: Bearer <token>" http://localhost:8080/api/users
+curl -H "Authorization: Bearer <token>" http://localhost:9091/api/users
 
 # Toggle maintenance mode
-curl -X POST -H "Authorization: Bearer <token>" http://localhost:8080/api/maintenance
+curl -X POST -H "Authorization: Bearer <token>" http://localhost:9091/api/maintenance
 
 # Open dashboard in browser (token is passed client-side for JS to use)
-open "http://localhost:8080/dashboard?token=<token>"
+open "http://localhost:9091/dashboard?token=<token>"
 ```
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
+| GET | `/livez` | Liveness probe (always 200, unauthenticated) |
+| GET | `/readyz` | Readiness probe (503 in maintenance mode) |
 | GET | `/api/health` | Health check with detail |
 | GET | `/api/status` | Server status (uptime, connections, users) |
 | GET | `/api/users` | List users (no password hashes) |
@@ -449,6 +451,28 @@ open "http://localhost:8080/dashboard?token=<token>"
 | GET | `/api/ws` | WebSocket real-time stream |
 | GET | `/dashboard` | Web dashboard (no auth required) |
 
+## CLI Reference
+
+| Subcommand | Description |
+|------------|-------------|
+| *(none)* | Start the server (default) |
+| `quick-start` | Zero-config server start with sensible defaults |
+| `init` | Generate a config file (with presets: `bastion`, `proxy`, `dev`) |
+| `wizard` | Interactive configuration wizard (14 sections) |
+| `demo` | Start a demo server with pre-populated realistic data |
+| `hash-password` | Hash a password using Argon2id |
+| `generate-totp` | Generate a TOTP secret and otpauth URL for a user |
+| `check-config` | Validate a configuration file |
+| `show-config` | Display effective config (secrets redacted, `--format toml\|json`) |
+| `health-check` | TCP connect probe (`--addr`, `--timeout`) |
+| `ssh-config` | Generate `~/.ssh/config` snippet for connecting to the server |
+| `backup` | Backup server state via the management API |
+| `restore` | Restore server state from a backup file via the API |
+| `completions` | Generate shell completions (`bash`, `zsh`, `fish`) |
+| `manpage` | Generate a man page (roff format) |
+
+Run `sks5 <subcommand> --help` for detailed usage.
+
 ## Health Check
 
 ```bash
@@ -463,7 +487,7 @@ sks5 images are available in two variants, both multi-arch (amd64 + arm64):
 
 | Variant | Image | Base | Size | Rootless |
 |---------|-------|------|------|:--------:|
-| **Alpine** (default) | `ghcr.io/galti3r/sks5:latest` | Alpine 3.21 | ~12 MB | UID 1000 |
+| **Alpine** (default) | `ghcr.io/galti3r/sks5:latest` | Alpine 3.22 | ~12 MB | UID 1000 |
 | **Scratch** | `ghcr.io/galti3r/sks5:latest-scratch` | `scratch` | ~5 MB | UID 65534 |
 
 ### Quick Start with Docker / Podman
@@ -575,7 +599,7 @@ data_dir = "/data"                         # Override with SKS5_DATA_DIR env var
 enabled = true
 flush_interval_secs = 30                   # State flush frequency
 ip_reputation_flush_interval_secs = 300    # Reputation flush frequency
-ip_reputation_min_score = 5                # Minimum score to persist
+ip_reputation_min_score = 10               # Minimum score to persist (default: 10)
 
 [persistence.userdata]
 shell_history_max = 100                    # Max commands per user (FIFO)
@@ -654,9 +678,9 @@ make bench             # Criterion benchmarks (ACL, password, config, SOCKS5)
 | E2E - SSH sessions | 3 | Session tracking and management |
 | E2E - SSE/WS | 12 | SSE ticket auth, SSE payloads, WebSocket connections |
 | E2E - Backup/Restore | 6 | Config backup and restore via API |
-| E2E - CLI | 10 | CLI subcommands, completions, help output |
+| E2E - CLI | 17 | CLI subcommands, completions, health-check, ssh-config, generate-totp |
 | E2E - Browser | 10 | Dashboard E2E with Chrome Headless (Podman), user detail modal |
-| **Total** | **~1550+** | **Unit + E2E test functions across all binaries** |
+| **Total** | **~1565+** | **Unit + E2E test functions across all binaries** |
 
 ## Security
 

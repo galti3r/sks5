@@ -70,7 +70,7 @@
 <body>
 <header>
   <h1>sks5 Dashboard</h1>
-  <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle light/dark theme">&#9790;</button>
+  <button class="theme-toggle" id="themeToggle" title="Toggle light/dark theme">&#9790;</button>
   <div class="status">
     <span class="dot" id="connDot"></span>
     <span id="connStatus">Connecting...</span>
@@ -101,8 +101,8 @@
     <h2>Controls</h2>
     <p style="font-size:0.8rem;color:var(--dim);margin-bottom:0.5rem">Maintenance mode: <span class="badge off" id="maintBadge">OFF</span></p>
     <div class="actions">
-      <button class="btn primary" onclick="toggleMaint()">Toggle Maintenance</button>
-      <button class="btn primary" onclick="reloadConfig()">Reload Config</button>
+      <button class="btn primary" id="btnMaint">Toggle Maintenance</button>
+      <button class="btn primary" id="btnReload">Reload Config</button>
     </div>
     <p id="actionMsg" style="font-size:0.75rem;margin-top:0.5rem;color:var(--dim)"></p>
   </div>
@@ -137,9 +137,9 @@
   </div>
 </div>
 
-<div class="modal-overlay" id="userModal" onclick="if(event.target===this)closeUserModal()">
+<div class="modal-overlay" id="userModal">
   <div class="modal">
-    <button class="modal-close" onclick="closeUserModal()">&times;</button>
+    <button class="modal-close" id="modalCloseBtn">&times;</button>
     <h2 id="modalTitle">User Detail</h2>
     <div id="modalContent"><p style="color:var(--dim);font-size:0.85rem">Loading...</p></div>
   </div>
@@ -161,23 +161,23 @@ function applyTheme(theme) {
   }
 }
 function toggleTheme() {
-  const isLight = document.documentElement.classList.contains('light');
-  const next = isLight ? 'dark' : 'light';
+  var isLight = document.documentElement.classList.contains('light');
+  var next = isLight ? 'dark' : 'light';
   localStorage.setItem('theme', next);
   applyTheme(next);
 }
 (function initTheme() {
-  const saved = localStorage.getItem('theme');
+  var saved = localStorage.getItem('theme');
   if (saved) { applyTheme(saved); }
   else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) { applyTheme('light'); }
   else { applyTheme('dark'); }
 })();
 
 // --- Connection type indicator ---
-let connType = 'none'; // 'ws', 'sse', 'poll'
+var connType = 'none'; // 'ws', 'sse', 'poll'
 function setConnType(type) {
   connType = type;
-  const badge = document.getElementById('connTypeBadge');
+  var badge = document.getElementById('connTypeBadge');
   badge.style.display = 'inline-block';
   badge.textContent = type.toUpperCase();
   badge.className = 'conn-badge ' + type;
@@ -185,7 +185,7 @@ function setConnType(type) {
 
 function fmt(s) { return String(s).padStart(2, '0'); }
 function fmtUptime(secs) {
-  const d = Math.floor(secs/86400), h = Math.floor((secs%86400)/3600), m = Math.floor((secs%3600)/60), s2 = secs%60;
+  var d = Math.floor(secs/86400), h = Math.floor((secs%86400)/3600), m = Math.floor((secs%3600)/60), s2 = secs%60;
   return d > 0 ? d+'d '+fmt(h)+'h' : h > 0 ? fmt(h)+'h '+fmt(m)+'m' : fmt(m)+'m '+fmt(s2)+'s';
 }
 function fmtBytes(b) {
@@ -195,15 +195,15 @@ function fmtBytes(b) {
   return b+' B';
 }
 function fmtRate(bps) {
-  const bits = bps * 8;
+  var bits = bps * 8;
   if (bits >= 1000000) return (bits/1000000).toFixed(1)+' Mbps';
   if (bits >= 1000) return (bits/1000).toFixed(1)+' Kbps';
   return bits+' bps';
 }
 
 function addLog(text) {
-  const el = document.getElementById('logArea');
-  const div = document.createElement('div');
+  var el = document.getElementById('logArea');
+  var div = document.createElement('div');
   div.className = 'log-line';
   div.innerHTML = text;
   el.appendChild(div);
@@ -212,206 +212,209 @@ function addLog(text) {
 }
 
 function updateUI(data) {
-  document.getElementById('activeConn').textContent = data.active_connections ?? '-';
-  document.getElementById('bannedCount').textContent = data.banned_count ?? '-';
-  document.getElementById('totalUsers').textContent = data.total_users ?? '-';
+  document.getElementById('activeConn').textContent = data.active_connections != null ? data.active_connections : '-';
+  document.getElementById('bannedCount').textContent = data.banned_count != null ? data.banned_count : '-';
+  document.getElementById('totalUsers').textContent = data.total_users != null ? data.total_users : '-';
   document.getElementById('uptime').textContent = data.uptime_secs != null ? fmtUptime(data.uptime_secs) : '-';
 
-  const mb = document.getElementById('maintBadge');
+  var mb = document.getElementById('maintBadge');
   if (data.maintenance) { mb.textContent = 'ON'; mb.className = 'badge on'; }
   else { mb.textContent = 'OFF'; mb.className = 'badge off'; }
 
   // Users
   if (data.users) {
-    const conns = data.connections || {};
-    const tb = document.getElementById('userTable');
-    tb.innerHTML = data.users.map(u => '<tr><td><a class="user-link" onclick="openUserModal(\''+esc(u.username)+'\')">'+esc(u.username)+'</a></td><td>'+(u.allow_shell?'Yes':'No')+'</td><td>'+(conns[u.username]||0)+'</td></tr>').join('');
+    var conns = data.connections || {};
+    var tb = document.getElementById('userTable');
+    tb.innerHTML = data.users.map(function(u) { return '<tr><td><a class="user-link" data-username="'+esc(u.username)+'">'+esc(u.username)+'</a></td><td>'+(u.allow_shell?'Yes':'No')+'</td><td>'+(conns[u.username]||0)+'</td></tr>'; }).join('');
+    tb.querySelectorAll('.user-link').forEach(function(el) {
+      el.addEventListener('click', function() { openUserModal(this.dataset.username); });
+    });
   }
 
   // Bans
   if (data.bans != null) {
-    const bt = document.getElementById('banTable');
-    const nb = document.getElementById('noBans');
+    var bt = document.getElementById('banTable');
+    var nb = document.getElementById('noBans');
     if (data.bans.length === 0) { bt.innerHTML = ''; nb.style.display = 'block'; }
     else {
       nb.style.display = 'none';
-      bt.innerHTML = data.bans.map(b => '<tr><td>'+b.ip+'</td><td>'+(b.expires_at||'permanent')+'</td><td><button class="btn danger" onclick="unban(\''+b.ip+'\')">Unban</button></td></tr>').join('');
+      bt.innerHTML = data.bans.map(function(b) { return '<tr><td>'+b.ip+'</td><td>'+(b.expires_at||'permanent')+'</td><td><button class="btn danger" data-ip="'+b.ip+'">Unban</button></td></tr>'; }).join('');
+      bt.querySelectorAll('.btn.danger').forEach(function(el) {
+        el.addEventListener('click', function() { unban(this.dataset.ip); });
+      });
     }
   }
 
   // Connections
   if (data.connections) {
-    const ct = document.getElementById('connTable');
-    const nc = document.getElementById('noConns');
-    const entries = Object.entries(data.connections);
+    var ct = document.getElementById('connTable');
+    var nc = document.getElementById('noConns');
+    var entries = Object.entries(data.connections);
     if (entries.length === 0) { ct.innerHTML = ''; nc.style.display = 'block'; }
     else {
       nc.style.display = 'none';
-      ct.innerHTML = entries.map(([u,c]) => '<tr><td>'+u+'</td><td>'+c+'</td></tr>').join('');
+      ct.innerHTML = entries.map(function(e) { return '<tr><td>'+e[0]+'</td><td>'+e[1]+'</td></tr>'; }).join('');
     }
   }
 
   // Groups
   if (data.groups != null) {
-    const gt = document.getElementById('groupTable');
-    const ng = document.getElementById('noGroups');
+    var gt = document.getElementById('groupTable');
+    var ng = document.getElementById('noGroups');
     if (data.groups.length === 0) { gt.innerHTML = ''; ng.style.display = 'block'; }
     else {
       ng.style.display = 'none';
-      gt.innerHTML = data.groups.map(g => '<tr><td>'+g.name+'</td><td>'+g.member_count+'</td><td>'+g.active_connections+'</td><td>'+fmtBytes(g.total_daily_bytes)+'</td><td>'+fmtBytes(g.total_monthly_bytes)+'</td></tr>').join('');
+      gt.innerHTML = data.groups.map(function(g) { return '<tr><td>'+g.name+'</td><td>'+g.member_count+'</td><td>'+g.active_connections+'</td><td>'+fmtBytes(g.total_daily_bytes)+'</td><td>'+fmtBytes(g.total_monthly_bytes)+'</td></tr>'; }).join('');
     }
   }
 
   // Sessions
   if (data.sessions != null) {
-    const st = document.getElementById('sessionTable');
-    const ns = document.getElementById('noSessions');
-    const sc = document.getElementById('sessionCount');
-    const list = data.sessions.sessions || [];
+    var st = document.getElementById('sessionTable');
+    var ns = document.getElementById('noSessions');
+    var sc = document.getElementById('sessionCount');
+    var list = data.sessions.sessions || [];
     sc.textContent = '(' + (data.sessions.total_active || 0) + ')';
     if (list.length === 0) { st.innerHTML = ''; ns.style.display = 'block'; }
     else {
       ns.style.display = 'none';
-      st.innerHTML = list.map(s => '<tr><td>'+s.session_id+'</td><td>'+s.username+'</td><td>'+s.target_host+':'+s.target_port+'</td><td>'+s.protocol+'</td><td>'+fmtBytes(s.bytes_up)+'</td><td>'+fmtBytes(s.bytes_down)+'</td><td>'+fmtUptime(s.duration_secs)+'</td></tr>').join('');
+      st.innerHTML = list.map(function(s) { return '<tr><td>'+s.session_id+'</td><td>'+s.username+'</td><td>'+s.target_host+':'+s.target_port+'</td><td>'+s.protocol+'</td><td>'+fmtBytes(s.bytes_up)+'</td><td>'+fmtBytes(s.bytes_down)+'</td><td>'+fmtUptime(s.duration_secs)+'</td></tr>'; }).join('');
     }
   }
 
   // Quotas
   if (data.quotas != null) {
-    const qt = document.getElementById('quotaTable');
-    const nq = document.getElementById('noQuotas');
+    var qt = document.getElementById('quotaTable');
+    var nq = document.getElementById('noQuotas');
     if (data.quotas.length === 0) { qt.innerHTML = ''; nq.style.display = 'block'; }
     else {
       nq.style.display = 'none';
-      qt.innerHTML = data.quotas.map(q => '<tr><td>'+q.username+'</td><td>'+fmtBytes(q.daily_bytes)+'</td><td>'+fmtBytes(q.monthly_bytes)+'</td><td>'+fmtBytes(q.total_bytes)+'</td><td>'+q.daily_connections+'</td><td>'+fmtRate(q.current_rate_bps)+'</td></tr>').join('');
+      qt.innerHTML = data.quotas.map(function(q) { return '<tr><td>'+q.username+'</td><td>'+fmtBytes(q.daily_bytes)+'</td><td>'+fmtBytes(q.monthly_bytes)+'</td><td>'+fmtBytes(q.total_bytes)+'</td><td>'+q.daily_connections+'</td><td>'+fmtRate(q.current_rate_bps)+'</td></tr>'; }).join('');
     }
   }
 
   // Audit events
   if (data.recent_events) {
-    data.recent_events.forEach(e => {
-      const ts = e.timestamp ? '<span class="ts">'+e.timestamp.substring(11,19)+'</span> ' : '';
-      const evt = '<span class="evt">'+(e.event_type||'unknown')+'</span> ';
-      const detail = e.username ? e.username+' ' : '';
+    data.recent_events.forEach(function(e) {
+      var ts = e.timestamp ? '<span class="ts">'+e.timestamp.substring(11,19)+'</span> ' : '';
+      var evt = '<span class="evt">'+(e.event_type||'unknown')+'</span> ';
+      var detail = e.username ? e.username+' ' : '';
       addLog(ts + evt + detail + (e.source_ip||'') + (e.target_host ? ' -> '+e.target_host+':'+e.target_port : ''));
     });
   }
 }
 
 // --- WebSocket connection ---
-let ws = null;
-let wsConnected = false;
+var ws = null;
+var wsConnected = false;
 
-async function getWsUrl() {
-  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const base = proto + '//' + window.location.host;
+function getWsUrl() {
+  var proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  var base = proto + '//' + window.location.host;
   if (TOKEN) {
-    // Get a short-lived HMAC ticket via Bearer auth, then connect WS with ?ticket=
-    try {
-      const res = await fetch(BASE + '/api/sse-ticket', {method: 'POST', headers});
-      if (res.ok) {
-        const json = await res.json();
-        const ticket = json.data ? json.data.ticket : json.ticket;
+    return fetch(BASE + '/api/sse-ticket', {method: 'POST', headers: headers})
+      .then(function(res) {
+        if (res.ok) return res.json();
+        throw new Error('ticket failed');
+      })
+      .then(function(json) {
+        var ticket = json.data ? json.data.ticket : json.ticket;
         return base + '/api/ws?ticket=' + encodeURIComponent(ticket);
-      }
-    } catch(e) { /* fall through */ }
+      })
+      .catch(function() { return base + '/api/ws'; });
   }
-  // No token or ticket negotiation failed — attempt unauthenticated (will fail if auth required)
-  return base + '/api/ws';
+  return Promise.resolve(base + '/api/ws');
 }
 
-async function connectWS() {
-  try {
-    const url = await getWsUrl();
+function connectWS() {
+  getWsUrl().then(function(url) {
     ws = new WebSocket(url);
 
-    ws.onopen = () => {
+    ws.onopen = function() {
       wsConnected = true;
       document.getElementById('connDot').className = 'dot';
       document.getElementById('connStatus').textContent = 'Connected';
       setConnType('ws');
     };
 
-    ws.onmessage = (e) => {
+    ws.onmessage = function(e) {
       try { updateUI(JSON.parse(e.data)); } catch(err) { console.error('WS parse error:', err); }
     };
 
-    ws.onclose = () => {
-      const wasConnected = wsConnected;
+    ws.onclose = function() {
+      var wasConnected = wsConnected;
       wsConnected = false;
       ws = null;
       document.getElementById('connDot').className = 'dot offline';
       document.getElementById('connStatus').textContent = 'Disconnected';
       if (wasConnected) {
-        // Was connected via WS, try to reconnect WS first then fall back
         setTimeout(connectWS, 3000);
       } else {
-        // WS never connected, fall back to SSE
         connectSSE();
       }
     };
 
-    ws.onerror = () => {
-      // onerror is always followed by onclose, so we handle fallback there
-    };
-  } catch(e) {
-    // WebSocket constructor failed, fall back to SSE
+    ws.onerror = function() {};
+  }).catch(function() {
     connectSSE();
-  }
+  });
 }
 
 // --- SSE connection with ticket-based auth (fallback) ---
-let evtSource;
-async function connectSSE() {
-  let url;
+var evtSource;
+function connectSSE() {
+  var urlPromise;
   if (TOKEN) {
-    // Get a short-lived HMAC ticket via Bearer auth, then connect SSE with ?ticket=
-    try {
-      const res = await fetch(BASE + '/api/sse-ticket', {method: 'POST', headers});
-      if (res.ok) {
-        const json = await res.json();
-        const ticket = json.data ? json.data.ticket : json.ticket;
-        url = BASE + '/api/events?ticket=' + encodeURIComponent(ticket);
-      }
-    } catch(e) { /* fall through */ }
+    urlPromise = fetch(BASE + '/api/sse-ticket', {method: 'POST', headers: headers})
+      .then(function(res) {
+        if (res.ok) return res.json();
+        throw new Error('ticket failed');
+      })
+      .then(function(json) {
+        var ticket = json.data ? json.data.ticket : json.ticket;
+        return BASE + '/api/events?ticket=' + encodeURIComponent(ticket);
+      })
+      .catch(function() { return BASE + '/api/events'; });
+  } else {
+    urlPromise = Promise.resolve(BASE + '/api/events');
   }
-  if (!url) {
-    url = BASE + '/api/events';
-  }
-  evtSource = new EventSource(url);
-  evtSource.onopen = () => {
-    document.getElementById('connDot').className = 'dot';
-    document.getElementById('connStatus').textContent = 'Connected';
-    setConnType('sse');
-  };
-  evtSource.onmessage = (e) => {
-    try { updateUI(JSON.parse(e.data)); } catch(err) { console.error(err); }
-  };
-  evtSource.onerror = () => {
-    document.getElementById('connDot').className = 'dot offline';
-    document.getElementById('connStatus').textContent = 'Disconnected';
-    evtSource.close();
-    setTimeout(connectSSE, 3000);
-  };
+  urlPromise.then(function(url) {
+    evtSource = new EventSource(url);
+    evtSource.onopen = function() {
+      document.getElementById('connDot').className = 'dot';
+      document.getElementById('connStatus').textContent = 'Connected';
+      setConnType('sse');
+    };
+    evtSource.onmessage = function(e) {
+      try { updateUI(JSON.parse(e.data)); } catch(err) { console.error(err); }
+    };
+    evtSource.onerror = function() {
+      document.getElementById('connDot').className = 'dot offline';
+      document.getElementById('connStatus').textContent = 'Disconnected';
+      evtSource.close();
+      setTimeout(connectSSE, 3000);
+    };
+  });
 }
 
 // --- Fallback polling if SSE not available ---
-async function poll() {
-  try {
-    const [status, users, bans, conns] = await Promise.all([
-      fetch(BASE+'/api/status', {headers}).then(r=>r.json()),
-      fetch(BASE+'/api/users', {headers}).then(r=>r.json()),
-      fetch(BASE+'/api/bans', {headers}).then(r=>r.json()),
-      fetch(BASE+'/api/connections', {headers}).then(r=>r.json()),
-    ]);
-    updateUI({...status, users: users.users||users, bans: bans.bans||bans, connections: conns.connections||conns});
+function poll() {
+  Promise.all([
+    fetch(BASE+'/api/status', {headers: headers}).then(function(r){return r.json();}),
+    fetch(BASE+'/api/users', {headers: headers}).then(function(r){return r.json();}),
+    fetch(BASE+'/api/bans', {headers: headers}).then(function(r){return r.json();}),
+    fetch(BASE+'/api/connections', {headers: headers}).then(function(r){return r.json();})
+  ]).then(function(results) {
+    var status = results[0], users = results[1], bans = results[2], conns = results[3];
+    var merged = Object.assign({}, status, {users: users.users||users, bans: bans.bans||bans, connections: conns.connections||conns});
+    updateUI(merged);
     document.getElementById('connDot').className = 'dot';
     document.getElementById('connStatus').textContent = 'Polling';
     setConnType('poll');
-  } catch(e) {
+  }).catch(function() {
     document.getElementById('connDot').className = 'dot offline';
     document.getElementById('connStatus').textContent = 'Error';
-  }
+  });
 }
 
 // --- Send command via WebSocket if connected, otherwise use REST ---
@@ -423,74 +426,77 @@ function wsSend(payload) {
   return false;
 }
 
-async function toggleMaint() {
-  try {
-    if (wsSend({action: 'maintenance', enabled: true})) {
-      document.getElementById('actionMsg').textContent = 'Maintenance toggle sent via WS';
-    } else {
-      const r = await fetch(BASE+'/api/maintenance', {method:'POST', headers});
-      const d = await r.json();
-      document.getElementById('actionMsg').textContent = 'Maintenance: ' + (d.maintenance?'ON':'OFF');
-    }
-  } catch(e) { document.getElementById('actionMsg').textContent = 'Error: '+e.message; }
+function toggleMaint() {
+  if (wsSend({action: 'maintenance', enabled: true})) {
+    document.getElementById('actionMsg').textContent = 'Maintenance toggle sent via WS';
+  } else {
+    fetch(BASE+'/api/maintenance', {method:'POST', headers: headers})
+      .then(function(r){return r.json();})
+      .then(function(d){ document.getElementById('actionMsg').textContent = 'Maintenance: ' + (d.maintenance?'ON':'OFF'); })
+      .catch(function(e){ document.getElementById('actionMsg').textContent = 'Error: '+e.message; });
+  }
 }
 
-async function reloadConfig() {
-  try {
-    const r = await fetch(BASE+'/api/reload', {method:'POST', headers});
-    const d = await r.json();
-    document.getElementById('actionMsg').textContent = d.success ? 'Reloaded ('+d.users_count+' users)' : 'Error: '+d.error;
-  } catch(e) { document.getElementById('actionMsg').textContent = 'Error: '+e.message; }
+function reloadConfig() {
+  fetch(BASE+'/api/reload', {method:'POST', headers: headers})
+    .then(function(r){return r.json();})
+    .then(function(d){ document.getElementById('actionMsg').textContent = d.success ? 'Reloaded ('+d.users_count+' users)' : 'Error: '+d.error; })
+    .catch(function(e){ document.getElementById('actionMsg').textContent = 'Error: '+e.message; });
 }
 
-async function unban(ip) {
-  try {
-    if (wsSend({action: 'unban', ip: ip})) {
-      document.getElementById('actionMsg').textContent = 'Unban request sent via WS for '+ip;
-    } else {
-      await fetch(BASE+'/api/bans/'+ip, {method:'DELETE', headers});
-      document.getElementById('actionMsg').textContent = 'Unbanned '+ip;
-    }
-  } catch(e) { document.getElementById('actionMsg').textContent = 'Error: '+e.message; }
+function unban(ip) {
+  if (wsSend({action: 'unban', ip: ip})) {
+    document.getElementById('actionMsg').textContent = 'Unban request sent via WS for '+ip;
+  } else {
+    fetch(BASE+'/api/bans/'+ip, {method:'DELETE', headers: headers})
+      .then(function(){ document.getElementById('actionMsg').textContent = 'Unbanned '+ip; })
+      .catch(function(e){ document.getElementById('actionMsg').textContent = 'Error: '+e.message; });
+  }
 }
 
-async function kick(username) {
-  try {
-    if (wsSend({action: 'kick', username: username})) {
-      document.getElementById('actionMsg').textContent = 'Kick request sent via WS for '+username;
-    } else {
-      await fetch(BASE+'/api/kick/'+encodeURIComponent(username), {method:'POST', headers});
-      document.getElementById('actionMsg').textContent = 'Kicked '+username;
-    }
-  } catch(e) { document.getElementById('actionMsg').textContent = 'Error: '+e.message; }
+function kick(username) {
+  if (wsSend({action: 'kick', username: username})) {
+    document.getElementById('actionMsg').textContent = 'Kick request sent via WS for '+username;
+  } else {
+    fetch(BASE+'/api/kick/'+encodeURIComponent(username), {method:'POST', headers: headers})
+      .then(function(){ document.getElementById('actionMsg').textContent = 'Kicked '+username; })
+      .catch(function(e){ document.getElementById('actionMsg').textContent = 'Error: '+e.message; });
+  }
 }
 
 // --- HTML escape helper ---
-function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
 // --- User detail modal ---
 function closeUserModal() { document.getElementById('userModal').classList.remove('active'); }
 
-async function openUserModal(username) {
-  const modal = document.getElementById('userModal');
-  const title = document.getElementById('modalTitle');
-  const content = document.getElementById('modalContent');
+function openUserModal(username) {
+  var modal = document.getElementById('userModal');
+  var title = document.getElementById('modalTitle');
+  var content = document.getElementById('modalContent');
   title.textContent = 'User: ' + username;
   content.innerHTML = '<p style="color:var(--dim);font-size:0.85rem">Loading...</p>';
   modal.classList.add('active');
-  try {
-    const res = await fetch(BASE+'/api/users/'+encodeURIComponent(username), {headers});
-    if (!res.ok) { content.innerHTML = '<p style="color:var(--red)">Error: '+res.status+'</p>'; return; }
-    const json = await res.json();
-    const u = json.data || json;
-    content.innerHTML = renderUserDetail(u);
-  } catch(e) {
-    content.innerHTML = '<p style="color:var(--red)">Failed to load: '+esc(e.message)+'</p>';
-  }
+  fetch(BASE+'/api/users/'+encodeURIComponent(username), {headers: headers})
+    .then(function(res) {
+      if (!res.ok) { content.innerHTML = '<p style="color:var(--red)">Error: '+res.status+'</p>'; return; }
+      return res.json();
+    })
+    .then(function(json) {
+      if (!json) return;
+      var u = json.data || json;
+      content.innerHTML = renderUserDetail(u);
+      content.querySelectorAll('.btn.danger[data-kick]').forEach(function(el) {
+        el.addEventListener('click', function() { kick(this.dataset.kick); closeUserModal(); });
+      });
+    })
+    .catch(function(e) {
+      content.innerHTML = '<p style="color:var(--red)">Failed to load: '+esc(e.message)+'</p>';
+    });
 }
 
 function renderUserDetail(u) {
-  let html = '';
+  var html = '';
 
   // Identity
   html += '<div class="modal-section"><h3>Identity</h3><dl class="detail-grid">';
@@ -509,7 +515,7 @@ function renderUserDetail(u) {
   html += '</dl>';
   if (u.authorized_keys_fingerprints && u.authorized_keys_fingerprints.length > 0) {
     html += '<p style="font-size:0.75rem;color:var(--dim);margin-top:0.4rem">SSH Keys:</p><ul class="detail-list">';
-    u.authorized_keys_fingerprints.forEach(fp => { html += '<li>'+esc(fp)+'</li>'; });
+    u.authorized_keys_fingerprints.forEach(function(fp) { html += '<li>'+esc(fp)+'</li>'; });
     html += '</ul>';
   }
   html += '</div>';
@@ -531,12 +537,12 @@ function renderUserDetail(u) {
   html += '</dl>';
   if (u.acl.allow_rules.length) {
     html += '<p style="font-size:0.75rem;color:var(--dim);margin-top:0.3rem">Allow:</p><ul class="detail-list">';
-    u.acl.allow_rules.forEach(r => { html += '<li style="color:var(--green)">'+esc(r)+'</li>'; });
+    u.acl.allow_rules.forEach(function(r) { html += '<li style="color:var(--green)">'+esc(r)+'</li>'; });
     html += '</ul>';
   }
   if (u.acl.deny_rules.length) {
     html += '<p style="font-size:0.75rem;color:var(--dim);margin-top:0.3rem">Deny:</p><ul class="detail-list">';
-    u.acl.deny_rules.forEach(r => { html += '<li style="color:var(--red)">'+esc(r)+'</li>'; });
+    u.acl.deny_rules.forEach(function(r) { html += '<li style="color:var(--red)">'+esc(r)+'</li>'; });
     html += '</ul>';
   }
   html += '</div>';
@@ -544,7 +550,7 @@ function renderUserDetail(u) {
   // Quotas
   if (u.quotas) {
     html += '<div class="modal-section"><h3>Quotas (Config)</h3><dl class="detail-grid">';
-    const q = u.quotas;
+    var q = u.quotas;
     if (q.daily_bandwidth_mb != null) html += '<dt>Daily BW</dt><dd>'+q.daily_bandwidth_mb+' MB</dd>';
     if (q.monthly_bandwidth_mb != null) html += '<dt>Monthly BW</dt><dd>'+q.monthly_bandwidth_mb+' MB</dd>';
     if (q.total_bandwidth_mb != null) html += '<dt>Total BW</dt><dd>'+q.total_bandwidth_mb+' MB</dd>';
@@ -558,7 +564,7 @@ function renderUserDetail(u) {
   html += '<dt>Active Connections</dt><dd>'+u.current_connections+'</dd>';
   html += '<dt>Total Bytes</dt><dd>'+fmtBytes(u.total_bytes_transferred)+'</dd>';
   if (u.quota_usage) {
-    const qu = u.quota_usage;
+    var qu = u.quota_usage;
     if (qu.daily_bytes != null) html += '<dt>Daily BW Used</dt><dd>'+fmtBytes(qu.daily_bytes)+'</dd>';
     if (qu.monthly_bytes != null) html += '<dt>Monthly BW Used</dt><dd>'+fmtBytes(qu.monthly_bytes)+'</dd>';
     if (qu.daily_connections != null) html += '<dt>Daily Conns Used</dt><dd>'+qu.daily_connections+'</dd>';
@@ -568,7 +574,7 @@ function renderUserDetail(u) {
   // Time access
   if (u.time_access) {
     html += '<div class="modal-section"><h3>Time Access</h3><dl class="detail-grid">';
-    const ta = u.time_access;
+    var ta = u.time_access;
     if (ta.allowed_days) html += '<dt>Days</dt><dd>'+esc(ta.allowed_days.join(', '))+'</dd>';
     if (ta.allowed_hours_start != null) html += '<dt>Hours</dt><dd>'+ta.allowed_hours_start+':00 - '+ta.allowed_hours_end+':00</dd>';
     if (ta.timezone) html += '<dt>Timezone</dt><dd>'+esc(ta.timezone)+'</dd>';
@@ -576,24 +582,33 @@ function renderUserDetail(u) {
   }
 
   // Aliases
-  const aliasEntries = Object.entries(u.aliases || {});
+  var aliasEntries = Object.entries(u.aliases || {});
   if (aliasEntries.length) {
     html += '<div class="modal-section"><h3>Aliases</h3><ul class="detail-list">';
-    aliasEntries.forEach(([k,v]) => { html += '<li><strong>'+esc(k)+'</strong> = '+esc(v)+'</li>'; });
+    aliasEntries.forEach(function(e) { html += '<li><strong>'+esc(e[0])+'</strong> = '+esc(e[1])+'</li>'; });
     html += '</ul></div>';
   }
 
   // Actions
   html += '<div class="actions" style="margin-top:0.5rem">';
-  html += '<button class="btn danger" onclick="kick(\''+esc(u.username)+'\');closeUserModal()">Kick User</button>';
+  html += '<button class="btn danger" data-kick="'+esc(u.username)+'">Kick User</button>';
   html += '</div>';
 
   return html;
 }
 
+// --- Event listeners (no inline onclick) ---
+document.getElementById('themeToggle').addEventListener('click', toggleTheme);
+document.getElementById('btnMaint').addEventListener('click', toggleMaint);
+document.getElementById('btnReload').addEventListener('click', reloadConfig);
+document.getElementById('modalCloseBtn').addEventListener('click', closeUserModal);
+document.getElementById('userModal').addEventListener('click', function(e) {
+  if (e.target === this) closeUserModal();
+});
+
 // --- Start connection: try WS first, then SSE, then polling ---
 connectWS();
-setTimeout(() => {
+setTimeout(function() {
   if (!wsConnected && (!evtSource || evtSource.readyState === 2)) {
     poll();
     setInterval(poll, 3000);

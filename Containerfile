@@ -10,8 +10,8 @@ COPY assets/ assets/
 COPY benches/ benches/
 RUN cargo build --release && strip target/release/sks5
 
-FROM alpine:3.21 AS certs
-RUN apk add --no-cache ca-certificates
+FROM alpine:3.22 AS certs
+RUN apk upgrade --no-cache && apk add --no-cache ca-certificates
 
 FROM scratch
 
@@ -29,6 +29,8 @@ EXPOSE 2222 1080 9090 9091
 VOLUME /data
 
 USER 65534
+
+STOPSIGNAL SIGTERM
 
 ENTRYPOINT ["/sks5"]
 CMD ["--config", "/etc/sks5/config.toml"]

@@ -4,10 +4,15 @@
 
 1. Clone the repository
 2. Install Rust 1.88+ (MSRV)
-3. Build and run tests:
+3. Install tooling and build:
    ```bash
+   make setup              # Install cargo-audit, cargo-deny, cargo-llvm-cov, etc.
    cargo build
    cargo test --all-targets
+   ```
+4. Run the full validation pipeline before submitting:
+   ```bash
+   make validate           # Lane-parallel: clippy, tests, security, coverage, MSRV
    ```
 
 ---
@@ -20,7 +25,7 @@ Before submitting a PR, ensure all of the following pass:
 - [ ] `cargo clippy --all-targets -- -D warnings` (no lint warnings)
 - [ ] `cargo test --all-targets` (all tests pass)
 - [ ] `cargo test --test e2e_browser_dashboard -- --ignored` (browser E2E tests pass, requires Podman)
-- [ ] Code coverage remains at **90% minimum** (`cargo tarpaulin --all-targets --fail-under 90`)
+- [ ] Code coverage remains at **90% minimum** (`cargo llvm-cov --all-targets --fail-under 90`)
 - [ ] New code has accompanying tests
 - [ ] No commented-out code in the diff
 - [ ] No secrets, credentials, or API keys in the diff
@@ -28,7 +33,10 @@ Before submitting a PR, ensure all of the following pass:
 Quick validation:
 
 ```bash
-# Full check
+# Full pipeline (recommended)
+make validate
+
+# Manual check
 cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings && cargo test --all-targets
 
 # With browser E2E
@@ -162,6 +170,10 @@ If you cannot run Podman locally (e.g. macOS without a Podman machine), the CI w
 ---
 
 ## Security
+
+### Vulnerability Disclosure
+
+If you discover a security vulnerability, please report it privately via [GitHub Private Vulnerability Reporting](https://github.com/galti3r/sks5/security/advisories/new). See [SECURITY.md](SECURITY.md) for the full policy and response timeline.
 
 ### Dependency Changes
 

@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Pre-push hook — runs full validation before allowing push
-# Install: make install-hooks
+# Install: make install-hooks (also configures SSH keepalive)
 # Tip: use "git push --follow-tags" to push branch+annotated tags in one command
 #      (avoids triggering the hook twice with separate push commands)
 set -euo pipefail
 
-echo "=== Pre-push: running make validate-docker ==="
+echo "=== Pre-push: running validate-docker ==="
 echo ""
 
-if ! make validate-docker; then
+if ! make validate-docker VALIDATE_EXTRA="--skip-vhs --skip-browser"; then
     echo ""
     echo "!! Push blocked — validate-docker failed."
     echo "!! Fix the issues above, then try again."

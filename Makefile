@@ -3,7 +3,7 @@ SHELL := /bin/bash
 # Detect host architecture for musl target
 MUSL_TARGET := $(shell uname -m | sed 's/x86_64/x86_64-unknown-linux-musl/' | sed 's/aarch64/aarch64-unknown-linux-musl/')
 
-.PHONY: build build-debug build-static test test-unit test-e2e test-e2e-all test-e2e-browser test-screenshots test-perf test-e2e-podman test-compose test-compose-validate coverage run fmt clippy check docker-build docker-build-scratch docker-build-all docker-build-cross docker-build-multiarch docker-build-package docker-scan docker-build-scan docker-run docker-run-scratch compose-up compose-down hash-password clean security-scan test-all quick-start init completions manpage bench changelog install-act install-hooks ensure-podman-socket ci-lint ci-test ci-docker-lint ci-e2e ci validate validate-docker validate-plain clean-validation validate-ci validate-msrv validate-coverage validate-security setup check-ci-sync
+.PHONY: build build-debug build-static test test-unit test-e2e test-e2e-all test-e2e-browser test-screenshots test-perf test-e2e-podman test-compose test-compose-validate coverage run fmt clippy check docker-build docker-build-scratch docker-build-all docker-build-cross docker-build-multiarch docker-build-package docker-scan docker-build-scan docker-run docker-run-scratch compose-up compose-down hash-password clean security-scan test-all quick-start init completions manpage bench changelog install-act install-hooks ensure-podman-socket ci-lint ci-test ci-docker-lint ci-e2e ci push push-all release validate validate-docker validate-plain clean-validation validate-ci validate-msrv validate-coverage validate-security setup check-ci-sync
 
 build:
 	cargo build --release
@@ -272,6 +272,8 @@ install-hooks:
 		ln -sf "../../$$hook" ".git/hooks/$$name"; \
 	done
 	@echo "  ok git hooks (symlinked)"
+	@git config --local core.sshCommand "ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=20"
+	@echo "  ok SSH keepalive (core.sshCommand)"
 
 install-act:
 	@echo "Installing act to ~/.local/bin..."
@@ -325,11 +327,31 @@ ci: ci-lint ci-test ci-e2e ci-docker-lint
 check-ci-sync:
 	@./scripts/check-ci-test-sync.sh
 
+push:
+	@./scripts/validate.sh --with-docker --skip-vhs --skip-browser
+	@git push --no-verify
+
+push-all:
+	@./scripts/validate.sh --with-docker --skip-vhs --skip-browser
+	@git push --follow-tags --no-verify
+
+release:
+	@test -n "$(VERSION)" || { echo "Usage: make release VERSION=x.y.z"; exit 1; }
+	@sed -i '0,/^version = ".*"/s//version = "$(VERSION)"/' Cargo.toml
+	@cargo check --quiet 2>/dev/null || true
+	@git add Cargo.toml Cargo.lock
+	@git commit -m "chore: bump version to $(VERSION)"
+	@git tag "v$(VERSION)"
+	@./scripts/validate.sh --with-docker --skip-vhs --skip-browser \
+		|| { echo "!! Validation failed — rolling back"; git tag -d "v$(VERSION)"; git reset --soft HEAD~1; exit 1; }
+	@git push --follow-tags --no-verify
+	@echo "Released v$(VERSION)"
+
 validate:
 	@./scripts/validate.sh
 
 validate-docker:
-	@./scripts/validate.sh --with-docker
+	@./scripts/validate.sh --with-docker $(VALIDATE_EXTRA)
 
 validate-plain:
 	@./scripts/validate.sh --plain

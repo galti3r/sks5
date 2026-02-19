@@ -28,7 +28,7 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     container:
-      image: rust:1.83-slim-bookworm
+      image: rust:1.88-slim-bookworm
     steps:
       - uses: actions/checkout@v4
 
@@ -57,7 +57,7 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     container:
-      image: rust:1.83-slim-bookworm
+      image: rust:1.88-slim-bookworm
     steps:
       - uses: actions/checkout@v4
 
@@ -80,7 +80,7 @@ jobs:
     name: Security
     runs-on: ubuntu-latest
     container:
-      image: rust:1.83-slim-bookworm
+      image: rust:1.88-slim-bookworm
     steps:
       - uses: actions/checkout@v4
 
@@ -111,7 +111,7 @@ jobs:
     name: Benchmark
     runs-on: ubuntu-latest
     container:
-      image: rust:1.83-slim-bookworm
+      image: rust:1.88-slim-bookworm
     steps:
       - uses: actions/checkout@v4
 
@@ -180,7 +180,7 @@ jobs:
         run: cp bench-output.txt bench-baseline.txt
 
       - name: Upload benchmark results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: benchmark-results
           path: bench-output.txt
@@ -193,7 +193,7 @@ jobs:
     needs: [lint, test]
     runs-on: ubuntu-latest
     container:
-      image: rust:1.83-slim-bookworm
+      image: rust:1.88-slim-bookworm
     steps:
       - uses: actions/checkout@v4
 
@@ -212,7 +212,7 @@ jobs:
           strip target/release/sks5
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: sks5-linux-amd64
           path: target/release/sks5
@@ -230,7 +230,7 @@ jobs:
 
       - name: Install Rust toolchain
         run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.83
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.88
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: Cache cargo
