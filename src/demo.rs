@@ -27,7 +27,6 @@ pub fn build_demo_config(
             server_id: "SSH-2.0-sks5-demo".to_string(),
             banner: "Welcome to sks5 demo".to_string(),
             motd_path: None,
-            proxy_protocol: false,
             allowed_ciphers: Vec::new(),
             allowed_kex: Vec::new(),
             shutdown_timeout: 5,
@@ -78,7 +77,6 @@ pub fn build_demo_config(
                 username: "alice".to_string(),
                 password_hash: Some(password_hash.to_string()),
                 authorized_keys: Vec::new(),
-                allow_forwarding: true,
                 allow_shell: Some(true),
                 max_new_connections_per_minute: 0,
                 max_bandwidth_kbps: 0,
@@ -116,7 +114,6 @@ pub fn build_demo_config(
                 username: "bob".to_string(),
                 password_hash: Some(password_hash.to_string()),
                 authorized_keys: Vec::new(),
-                allow_forwarding: true,
                 allow_shell: Some(false),
                 max_new_connections_per_minute: 0,
                 max_bandwidth_kbps: 0,
@@ -154,7 +151,6 @@ pub fn build_demo_config(
                 username: "charlie".to_string(),
                 password_hash: Some(password_hash.to_string()),
                 authorized_keys: Vec::new(),
-                allow_forwarding: true,
                 allow_shell: Some(true),
                 max_new_connections_per_minute: 0,
                 max_bandwidth_kbps: 0,
@@ -195,7 +191,6 @@ pub fn build_demo_config(
             max_bandwidth_kbps: Some(10240),
             max_aggregate_bandwidth_kbps: None,
             max_new_connections_per_minute: None,
-            allow_forwarding: Some(true),
             allow_shell: Some(true),
             shell_permissions: None,
             motd: None,
@@ -293,10 +288,15 @@ pub async fn inject_demo_data(ctx: &AppContext) -> Vec<Arc<LiveSession>> {
     let charlie_addr: SocketAddr = "192.168.1.10:61200".parse().unwrap();
     let attacker_addr: SocketAddr = "192.168.99.1:12345".parse().unwrap();
 
-    audit.log_event(AuditEvent::auth_success("alice", &alice_addr, "publickey"));
-    audit.log_event(AuditEvent::auth_success("bob", &bob_addr, "password"));
-    audit.log_event(AuditEvent::connection_new(&alice_addr, "ssh"));
-    audit.log_event(AuditEvent::connection_new(&bob_addr, "socks5"));
+    audit.log_event(AuditEvent::auth_success(
+        "alice",
+        &alice_addr,
+        "publickey",
+        None,
+    ));
+    audit.log_event(AuditEvent::auth_success("bob", &bob_addr, "password", None));
+    audit.log_event(AuditEvent::connection_new(&alice_addr, "ssh", None));
+    audit.log_event(AuditEvent::connection_new(&bob_addr, "socks5", None));
     audit.log_event(AuditEvent::acl_deny(
         "charlie",
         "blocked.internal",
@@ -305,11 +305,13 @@ pub async fn inject_demo_data(ctx: &AppContext) -> Vec<Arc<LiveSession>> {
         &charlie_addr.ip().to_string(),
         Some("*.internal:*".to_string()),
         "ACL deny rule matched",
+        None,
     ));
     audit.log_event(AuditEvent::auth_failure(
         "admin",
         &attacker_addr,
         "password",
+        None,
     ));
 
     sessions

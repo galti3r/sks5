@@ -72,7 +72,6 @@ deny = ["169.254.169.254:*"]
 [[users]]
 username = "alice"
 password_hash = "{hash}"
-allow_forwarding = true
 allow_shell = true
 
 [users.acl]
@@ -83,7 +82,6 @@ deny = ["169.254.169.254:*"]
 [[users]]
 username = "bob"
 password_hash = "{hash}"
-allow_forwarding = true
 allow_shell = false
 "##,
         hash = FAKE_HASH,

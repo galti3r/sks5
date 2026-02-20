@@ -333,7 +333,7 @@ fn test_render_motd_full_context_no_colors() {
     assert!(result.contains("Policy: deny"));
     assert!(result.contains("5.0 MB / 1.0 GB"));
     assert!(result.contains("Expires: 2099-06-15T12:00:00Z"));
-    assert!(result.contains("1d 2h 3m"));
+    assert!(result.contains("1d 2h"));
     assert!(result.contains("sks5 Proxy  v1.2.3"));
 
     // No ANSI escape codes.
@@ -431,10 +431,10 @@ fn test_render_motd_uptime_formatting() {
     let result = render_motd("Up: {uptime}", &ctx, false, &default_perms());
     assert_eq!(result, "Up: 2h 1m");
 
-    // Days + hours + minutes: "Xd Xh Xm"
-    ctx.uptime = 90000; // 1d 1h 0m
+    // Days + hours: "Xd Xh"
+    ctx.uptime = 90000; // 1d 1h
     let result = render_motd("Up: {uptime}", &ctx, false, &default_perms());
-    assert_eq!(result, "Up: 1d 1h 0m");
+    assert_eq!(result, "Up: 1d 1h");
 }
 
 // ---------------------------------------------------------------------------

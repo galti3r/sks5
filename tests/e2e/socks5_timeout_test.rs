@@ -34,7 +34,6 @@ ip_guard_enabled = false
 [[users]]
 username = "alice"
 password_hash = "{hash}"
-allow_forwarding = true
 "##
     );
     let config: AppConfig = toml::from_str(&toml_str).unwrap();
@@ -99,7 +98,6 @@ ip_guard_enabled = false
 [[users]]
 username = "alice"
 password_hash = "{hash}"
-allow_forwarding = true
 "##
     );
     let config: AppConfig = toml::from_str(&toml_str).unwrap();

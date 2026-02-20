@@ -304,6 +304,42 @@ impl QuotaTracker {
         quotas: Option<&QuotaConfig>,
     ) -> QuotaResult {
         let state = self.get_user(username);
+        self.record_bytes_inner(
+            &state,
+            bytes,
+            per_conn_limit_kbps,
+            aggregate_limit_kbps,
+            quotas,
+        )
+    }
+
+    /// Like `record_bytes` but uses a pre-fetched user state to avoid DashMap lookups per chunk.
+    /// Call `get_user()` once before the hot loop and pass the result here.
+    pub fn record_bytes_cached(
+        &self,
+        state: &Arc<UserBandwidthState>,
+        bytes: u64,
+        per_conn_limit_kbps: u64,
+        aggregate_limit_kbps: u64,
+        quotas: Option<&QuotaConfig>,
+    ) -> QuotaResult {
+        self.record_bytes_inner(
+            state,
+            bytes,
+            per_conn_limit_kbps,
+            aggregate_limit_kbps,
+            quotas,
+        )
+    }
+
+    fn record_bytes_inner(
+        &self,
+        state: &Arc<UserBandwidthState>,
+        bytes: u64,
+        per_conn_limit_kbps: u64,
+        aggregate_limit_kbps: u64,
+        quotas: Option<&QuotaConfig>,
+    ) -> QuotaResult {
         state.lazy_reset();
         state.last_activity.store(unix_secs(), Ordering::Relaxed);
 
@@ -344,67 +380,6 @@ impl QuotaTracker {
         }
 
         // Compute throttle delay
-        let aggregate_limit_bps = aggregate_limit_kbps * 1000 / 8;
-        let aggregate_rate_bps = state.second_window.sum();
-        let server_limit_bps = self.server_bandwidth_limit_bps.load(Ordering::Relaxed);
-        let server_rate_bps = self.server_bandwidth.sum();
-
-        let delay = bandwidth::compute_throttle(
-            bytes,
-            per_conn_limit_kbps,
-            aggregate_rate_bps,
-            aggregate_limit_bps,
-            server_rate_bps,
-            server_limit_bps,
-        );
-
-        QuotaResult::Ok(delay)
-    }
-
-    /// Like `record_bytes` but uses a pre-fetched user state to avoid DashMap lookups per chunk.
-    /// Call `get_user()` once before the hot loop and pass the result here.
-    pub fn record_bytes_cached(
-        &self,
-        state: &Arc<UserBandwidthState>,
-        bytes: u64,
-        per_conn_limit_kbps: u64,
-        aggregate_limit_kbps: u64,
-        quotas: Option<&QuotaConfig>,
-    ) -> QuotaResult {
-        state.lazy_reset();
-        state.last_activity.store(unix_secs(), Ordering::Relaxed);
-
-        state.second_window.record(bytes);
-        state.hour_window.record(bytes);
-        self.server_bandwidth.record(bytes);
-
-        state.daily_bytes.fetch_add(bytes, Ordering::Relaxed);
-        state.monthly_bytes.fetch_add(bytes, Ordering::Relaxed);
-        state.total_bytes.fetch_add(bytes, Ordering::Relaxed);
-
-        if let Some(q) = quotas {
-            if q.total_bandwidth_bytes > 0
-                && state.total_bytes.load(Ordering::Relaxed) >= q.total_bandwidth_bytes
-            {
-                return QuotaResult::Exceeded("total bandwidth quota exceeded".to_string());
-            }
-            if q.daily_bandwidth_bytes > 0
-                && state.daily_bytes.load(Ordering::Relaxed) >= q.daily_bandwidth_bytes
-            {
-                return QuotaResult::Exceeded("daily bandwidth quota exceeded".to_string());
-            }
-            if q.monthly_bandwidth_bytes > 0
-                && state.monthly_bytes.load(Ordering::Relaxed) >= q.monthly_bandwidth_bytes
-            {
-                return QuotaResult::Exceeded("monthly bandwidth quota exceeded".to_string());
-            }
-            if q.bandwidth_per_hour_bytes > 0
-                && state.hour_window.sum() >= q.bandwidth_per_hour_bytes
-            {
-                return QuotaResult::Exceeded("hourly bandwidth quota exceeded".to_string());
-            }
-        }
-
         let aggregate_limit_bps = aggregate_limit_kbps * 1000 / 8;
         let aggregate_rate_bps = state.second_window.sum();
         let server_limit_bps = self.server_bandwidth_limit_bps.load(Ordering::Relaxed);

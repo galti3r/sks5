@@ -69,13 +69,25 @@ impl AuditLogger {
         self.dropped_count.load(Ordering::Relaxed)
     }
 
-    pub async fn log_auth_success(&self, username: &str, source: &SocketAddr, method: &str) {
-        let event = AuditEvent::auth_success(username, source, method);
+    pub async fn log_auth_success(
+        &self,
+        username: &str,
+        source: &SocketAddr,
+        method: &str,
+        cid: Option<&str>,
+    ) {
+        let event = AuditEvent::auth_success(username, source, method, cid);
         self.try_send(event);
     }
 
-    pub async fn log_auth_failure(&self, username: &str, source: &SocketAddr, method: &str) {
-        let event = AuditEvent::auth_failure(username, source, method);
+    pub async fn log_auth_failure(
+        &self,
+        username: &str,
+        source: &SocketAddr,
+        method: &str,
+        cid: Option<&str>,
+    ) {
+        let event = AuditEvent::auth_failure(username, source, method, cid);
         self.try_send(event);
     }
 
@@ -90,6 +102,7 @@ impl AuditLogger {
         duration_ms: u64,
         source: &SocketAddr,
         resolved_ip: Option<String>,
+        cid: Option<&str>,
     ) {
         let event = AuditEvent::proxy_complete(
             username,
@@ -100,6 +113,7 @@ impl AuditLogger {
             duration_ms,
             source,
             resolved_ip,
+            cid,
         );
         self.try_send(event);
     }
@@ -114,6 +128,7 @@ impl AuditLogger {
         source_ip: &str,
         matched_rule: Option<String>,
         reason: &str,
+        cid: Option<&str>,
     ) {
         let event = AuditEvent::acl_deny(
             username,
@@ -123,17 +138,18 @@ impl AuditLogger {
             source_ip,
             matched_rule,
             reason,
+            cid,
         );
         self.try_send(event);
     }
 
-    pub fn log_connection_new(&self, source: &SocketAddr, protocol: &str) {
-        let event = AuditEvent::connection_new(source, protocol);
+    pub fn log_connection_new(&self, source: &SocketAddr, protocol: &str, cid: Option<&str>) {
+        let event = AuditEvent::connection_new(source, protocol, cid);
         self.try_send(event);
     }
 
-    pub fn log_connection_closed(&self, source: &SocketAddr, protocol: &str) {
-        let event = AuditEvent::connection_closed(source, protocol);
+    pub fn log_connection_closed(&self, source: &SocketAddr, protocol: &str, cid: Option<&str>) {
+        let event = AuditEvent::connection_closed(source, protocol, cid);
         self.try_send(event);
     }
 
@@ -148,8 +164,9 @@ impl AuditLogger {
         quota_type: &str,
         current_usage: u64,
         limit: u64,
+        cid: Option<&str>,
     ) {
-        let event = AuditEvent::quota_exceeded(username, quota_type, current_usage, limit);
+        let event = AuditEvent::quota_exceeded(username, quota_type, current_usage, limit, cid);
         self.try_send(event);
     }
 
@@ -159,8 +176,9 @@ impl AuditLogger {
         source: &SocketAddr,
         protocol: &str,
         method: &str,
+        cid: Option<&str>,
     ) {
-        let event = AuditEvent::session_authenticated(username, source, protocol, method);
+        let event = AuditEvent::session_authenticated(username, source, protocol, method, cid);
         self.try_send(event);
     }
 
@@ -171,14 +189,21 @@ impl AuditLogger {
         protocol: &str,
         duration_secs: u64,
         total_bytes: u64,
+        cid: Option<&str>,
     ) {
         let event =
-            AuditEvent::session_ended(username, source, protocol, duration_secs, total_bytes);
+            AuditEvent::session_ended(username, source, protocol, duration_secs, total_bytes, cid);
         self.try_send(event);
     }
 
-    pub fn log_rate_limit_exceeded(&self, username: &str, source: &SocketAddr, limit_type: &str) {
-        let event = AuditEvent::rate_limit_exceeded(username, source, limit_type);
+    pub fn log_rate_limit_exceeded(
+        &self,
+        username: &str,
+        source: &SocketAddr,
+        limit_type: &str,
+        cid: Option<&str>,
+    ) {
+        let event = AuditEvent::rate_limit_exceeded(username, source, limit_type, cid);
         self.try_send(event);
     }
 
@@ -194,116 +219,6 @@ impl AuditLogger {
 
     pub fn log_ban_expired(&self, ip: &std::net::IpAddr) {
         let event = AuditEvent::ban_expired(ip);
-        self.try_send(event);
-    }
-
-    // --- Correlation-ID-aware variants ---
-
-    pub async fn log_auth_success_cid(
-        &self,
-        username: &str,
-        source: &SocketAddr,
-        method: &str,
-        cid: &str,
-    ) {
-        let event = AuditEvent::auth_success_with_cid(username, source, method, cid);
-        self.try_send(event);
-    }
-
-    pub async fn log_auth_failure_cid(
-        &self,
-        username: &str,
-        source: &SocketAddr,
-        method: &str,
-        cid: &str,
-    ) {
-        let event = AuditEvent::auth_failure_with_cid(username, source, method, cid);
-        self.try_send(event);
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub async fn log_proxy_complete_cid(
-        &self,
-        username: &str,
-        host: &str,
-        port: u16,
-        bytes_up: u64,
-        bytes_down: u64,
-        duration_ms: u64,
-        source: &SocketAddr,
-        resolved_ip: Option<String>,
-        cid: &str,
-    ) {
-        let event = AuditEvent::proxy_complete_with_cid(
-            username,
-            host,
-            port,
-            bytes_up,
-            bytes_down,
-            duration_ms,
-            source,
-            resolved_ip,
-            cid,
-        );
-        self.try_send(event);
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn log_acl_deny_cid(
-        &self,
-        username: &str,
-        host: &str,
-        port: u16,
-        resolved_ip: Option<String>,
-        source_ip: &str,
-        matched_rule: Option<String>,
-        reason: &str,
-        cid: &str,
-    ) {
-        let event = AuditEvent::acl_deny_with_cid(
-            username,
-            host,
-            port,
-            resolved_ip,
-            source_ip,
-            matched_rule,
-            reason,
-            cid,
-        );
-        self.try_send(event);
-    }
-
-    pub fn log_connection_new_cid(&self, source: &SocketAddr, protocol: &str, cid: &str) {
-        let event = AuditEvent::connection_new_with_cid(source, protocol, cid);
-        self.try_send(event);
-    }
-
-    pub fn log_connection_closed_cid(&self, source: &SocketAddr, protocol: &str, cid: &str) {
-        let event = AuditEvent::connection_closed_with_cid(source, protocol, cid);
-        self.try_send(event);
-    }
-
-    pub fn log_session_authenticated_cid(
-        &self,
-        username: &str,
-        source: &SocketAddr,
-        protocol: &str,
-        method: &str,
-        cid: &str,
-    ) {
-        let event =
-            AuditEvent::session_authenticated_with_cid(username, source, protocol, method, cid);
-        self.try_send(event);
-    }
-
-    pub fn log_rate_limit_exceeded_cid(
-        &self,
-        username: &str,
-        source: &SocketAddr,
-        limit_type: &str,
-        cid: &str,
-    ) {
-        let event = AuditEvent::rate_limit_exceeded_with_cid(username, source, limit_type, cid);
         self.try_send(event);
     }
 

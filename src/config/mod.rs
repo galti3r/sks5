@@ -183,6 +183,23 @@ fn validate_users(config: &AppConfig) -> Result<()> {
                 .with_context(|| format!("user '{}' ACL deny rule: {}", user.username, rule))?;
         }
 
+        // Validate access_hours format at startup (fail-fast, not fail-closed at runtime)
+        if let Some(ref ta) = user.time_access {
+            if let Some(ref hours) = ta.access_hours {
+                let parts: Vec<&str> = hours.split('-').collect();
+                if parts.len() != 2
+                    || crate::utils::parse_hhmm(parts[0]).is_none()
+                    || crate::utils::parse_hhmm(parts[1]).is_none()
+                {
+                    anyhow::bail!(
+                        "user '{}' has malformed access_hours '{}' (expected HH:MM-HH:MM)",
+                        user.username,
+                        hours
+                    );
+                }
+            }
+        }
+
         // Warn per-user hostname-only deny rules with allow policy
         let effective_policy = user
             .acl
@@ -205,6 +222,26 @@ fn validate_users(config: &AppConfig) -> Result<()> {
             }
         }
     }
+
+    // Validate group-level access_hours format
+    for grp in &config.groups {
+        if let Some(ref ta) = grp.time_access {
+            if let Some(ref hours) = ta.access_hours {
+                let parts: Vec<&str> = hours.split('-').collect();
+                if parts.len() != 2
+                    || crate::utils::parse_hhmm(parts[0]).is_none()
+                    || crate::utils::parse_hhmm(parts[1]).is_none()
+                {
+                    anyhow::bail!(
+                        "group '{}' has malformed access_hours '{}' (expected HH:MM-HH:MM)",
+                        grp.name,
+                        hours
+                    );
+                }
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -469,7 +506,6 @@ token = "test-token-long-enough"
 [[users]]
 username = "alice"
 password_hash = "{hash}"
-allow_forwarding = true
 allow_shell = true
 
 [users.acl]
@@ -480,7 +516,6 @@ deny = ["169.254.169.254:*"]
 [[users]]
 username = "bob"
 password_hash = "{hash}"
-allow_forwarding = true
 allow_shell = false
 
 [users.acl]

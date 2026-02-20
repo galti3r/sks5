@@ -1,5 +1,6 @@
 use dashmap::DashMap;
 use governor::{Quota, RateLimiter};
+use std::hash::Hash;
 use std::net::IpAddr;
 use std::num::NonZeroU32;
 use std::sync::Arc;
@@ -18,52 +19,57 @@ struct TrackedLimiter {
     last_used: Instant,
 }
 
-/// Per-user rate limiter
-pub struct UserRateLimiter {
-    limiters: DashMap<String, TrackedLimiter>,
+/// Generic keyed rate limiter that stores per-key token-bucket limiters with
+/// capacity management (emergency cleanup + LRU eviction).
+struct KeyedRateLimiter<K: Hash + Eq + Clone> {
+    limiters: DashMap<K, TrackedLimiter>,
     max_entries: usize,
+    label: &'static str,
 }
 
-/// Per-IP rate limiter (pre-auth, for connection attempts)
-pub struct IpRateLimiter {
-    limiters: DashMap<IpAddr, TrackedLimiter>,
-    max_per_minute: u32,
-    max_entries: usize,
-}
-
-impl IpRateLimiter {
-    pub fn new(max_per_minute: u32, max_entries: usize) -> Self {
+impl<K: Hash + Eq + Clone> KeyedRateLimiter<K> {
+    fn new(max_entries: usize, label: &'static str) -> Self {
         Self {
             limiters: DashMap::new(),
-            max_per_minute,
             max_entries,
+            label,
         }
     }
 
-    /// Check if an IP can make a new connection (returns true if allowed).
-    /// 0 = unlimited.
-    pub fn check(&self, ip: &IpAddr) -> bool {
-        if self.max_per_minute == 0 {
+    /// Check if a key can make a new request (returns true if allowed).
+    /// `max_per_minute == 0` means unlimited.
+    fn check_key(&self, key: K, max_per_minute: u32) -> bool {
+        if max_per_minute == 0 {
             return true;
         }
 
-        if !self.limiters.contains_key(ip) && self.limiters.len() >= self.max_entries {
-            // Attempt emergency cleanup of stale entries (>10 min old) before rejecting
-            self.cleanup_stale(Duration::from_secs(600));
+        // Safety cap: refuse if too many tracked entries (DoS protection).
+        // Use a fresh entry() call below for the actual insert, so we only
+        // need a contains-like check here.  Because DashMap::entry() requires
+        // an owned key we compare via a temporary entry attempt — but
+        // contains_key is cheaper and works for any K that is Eq+Hash.
+        if self.limiters.len() >= self.max_entries {
+            // Only need cleanup if the key is NOT already tracked
+            if self.limiters.get(&key).is_none() {
+                // Attempt emergency cleanup of stale entries (>10 min old) before rejecting
+                self.cleanup_stale(Duration::from_secs(600));
 
-            // If still at capacity, evict oldest entries to make room
-            if self.limiters.len() >= self.max_entries {
-                let evicted = self.evict_oldest(self.max_entries / 10);
-                warn!(
-                    tracked_ips = self.limiters.len(),
-                    evicted, "IP rate limiter at capacity, evicted oldest entries"
-                );
+                // If still at capacity, evict oldest entries to make room
+                if self.limiters.len() >= self.max_entries {
+                    let evicted = self.evict_oldest(self.max_entries / 10);
+                    warn!(
+                        tracked_entries = self.limiters.len(),
+                        evicted,
+                        label = self.label,
+                        "Rate limiter at capacity, evicted oldest entries"
+                    );
+                }
             }
         }
 
-        let entry = self.limiters.entry(*ip).or_insert_with(|| {
+        let entry = self.limiters.entry(key).or_insert_with(|| {
             let quota =
-                Quota::per_minute(NonZeroU32::new(self.max_per_minute).unwrap_or(NonZeroU32::MIN));
+                Quota::per_minute(NonZeroU32::new(max_per_minute).unwrap_or(NonZeroU32::MIN));
             TrackedLimiter {
                 limiter: Arc::new(RateLimiter::direct(quota)),
                 last_used: Instant::now(),
@@ -76,7 +82,7 @@ impl IpRateLimiter {
     }
 
     /// Remove entries that haven't been used for `max_age`.
-    pub fn cleanup_stale(&self, max_age: Duration) {
+    fn cleanup_stale(&self, max_age: Duration) {
         let now = Instant::now();
         let before = self.limiters.len();
         self.limiters
@@ -86,7 +92,8 @@ impl IpRateLimiter {
             debug!(
                 removed,
                 remaining = self.limiters.len(),
-                "IP rate limiter stale cleanup"
+                label = self.label,
+                "Rate limiter stale cleanup"
             );
         }
     }
@@ -98,110 +105,7 @@ impl IpRateLimiter {
         }
 
         // Collect (key, last_used) without holding shard locks for long
-        let mut entries: Vec<(IpAddr, Instant)> = self
-            .limiters
-            .iter()
-            .map(|entry| (*entry.key(), entry.value().last_used))
-            .collect();
-
-        // Sort by last_used ascending (oldest first)
-        entries.sort_by_key(|&(_, t)| t);
-
-        let to_evict = entries.len().min(count);
-        for (ip, _) in entries.into_iter().take(to_evict) {
-            self.limiters.remove(&ip);
-        }
-
-        to_evict
-    }
-
-    /// Current number of tracked entries.
-    pub fn len(&self) -> usize {
-        self.limiters.len()
-    }
-
-    /// Whether the rate limiter has no tracked entries.
-    pub fn is_empty(&self) -> bool {
-        self.limiters.is_empty()
-    }
-}
-
-impl Default for IpRateLimiter {
-    fn default() -> Self {
-        Self::new(0, 100_000)
-    }
-}
-
-impl UserRateLimiter {
-    pub fn new(max_entries: usize) -> Self {
-        Self {
-            limiters: DashMap::new(),
-            max_entries,
-        }
-    }
-
-    /// Check if a user can make a new connection (returns true if allowed)
-    pub fn check(&self, username: &str, max_per_minute: u32) -> bool {
-        if max_per_minute == 0 {
-            return true; // 0 = unlimited
-        }
-
-        // Safety cap: refuse if too many tracked usernames (DoS protection)
-        if !self.limiters.contains_key(username) && self.limiters.len() >= self.max_entries {
-            // Attempt emergency cleanup of stale entries (>10 min old) before rejecting
-            self.cleanup_stale(Duration::from_secs(600));
-
-            // If still at capacity, evict oldest entries to make room
-            if self.limiters.len() >= self.max_entries {
-                let evicted = self.evict_oldest(self.max_entries / 10);
-                warn!(
-                    tracked_users = self.limiters.len(),
-                    evicted, "User rate limiter at capacity, evicted oldest entries"
-                );
-            }
-        }
-
-        let entry = self
-            .limiters
-            .entry(username.to_string())
-            .or_insert_with(|| {
-                let quota =
-                    Quota::per_minute(NonZeroU32::new(max_per_minute).unwrap_or(NonZeroU32::MIN));
-                TrackedLimiter {
-                    limiter: Arc::new(RateLimiter::direct(quota)),
-                    last_used: Instant::now(),
-                }
-            });
-
-        let mut tracked = entry;
-        tracked.last_used = Instant::now();
-        tracked.limiter.check().is_ok()
-    }
-
-    /// Remove entries that haven't been used for `max_age`.
-    pub fn cleanup_stale(&self, max_age: Duration) {
-        let now = Instant::now();
-        let before = self.limiters.len();
-        self.limiters
-            .retain(|_, tracked| now.duration_since(tracked.last_used) < max_age);
-        let removed = before.saturating_sub(self.limiters.len());
-        if removed > 0 {
-            debug!(
-                removed,
-                remaining = self.limiters.len(),
-                "User rate limiter stale cleanup"
-            );
-        }
-    }
-
-    /// Evict the oldest `count` entries (LRU-like). Returns how many were evicted.
-    fn evict_oldest(&self, count: usize) -> usize {
-        if count == 0 || self.limiters.is_empty() {
-            return 0;
-        }
-
-        // Collect (key, last_used) without holding shard locks for long
-        let mut entries: Vec<(String, Instant)> = self
+        let mut entries: Vec<(K, Instant)> = self
             .limiters
             .iter()
             .map(|entry| (entry.key().clone(), entry.value().last_used))
@@ -211,21 +115,96 @@ impl UserRateLimiter {
         entries.sort_by_key(|&(_, t)| t);
 
         let to_evict = entries.len().min(count);
-        for (username, _) in entries.into_iter().take(to_evict) {
-            self.limiters.remove(&username);
+        for (key, _) in entries.into_iter().take(to_evict) {
+            self.limiters.remove(&key);
         }
 
         to_evict
     }
 
     /// Current number of tracked entries.
-    pub fn len(&self) -> usize {
+    fn len(&self) -> usize {
         self.limiters.len()
     }
 
     /// Whether the rate limiter has no tracked entries.
-    pub fn is_empty(&self) -> bool {
+    fn is_empty(&self) -> bool {
         self.limiters.is_empty()
+    }
+}
+
+/// Per-IP rate limiter (pre-auth, for connection attempts)
+pub struct IpRateLimiter {
+    inner: KeyedRateLimiter<IpAddr>,
+    max_per_minute: u32,
+}
+
+impl IpRateLimiter {
+    pub fn new(max_per_minute: u32, max_entries: usize) -> Self {
+        Self {
+            inner: KeyedRateLimiter::new(max_entries, "IP"),
+            max_per_minute,
+        }
+    }
+
+    /// Check if an IP can make a new connection (returns true if allowed).
+    /// 0 = unlimited.
+    pub fn check(&self, ip: &IpAddr) -> bool {
+        self.inner.check_key(*ip, self.max_per_minute)
+    }
+
+    /// Remove entries that haven't been used for `max_age`.
+    pub fn cleanup_stale(&self, max_age: Duration) {
+        self.inner.cleanup_stale(max_age);
+    }
+
+    /// Current number of tracked entries.
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    /// Whether the rate limiter has no tracked entries.
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+}
+
+impl Default for IpRateLimiter {
+    fn default() -> Self {
+        Self::new(0, 100_000)
+    }
+}
+
+/// Per-user rate limiter
+pub struct UserRateLimiter {
+    inner: KeyedRateLimiter<String>,
+}
+
+impl UserRateLimiter {
+    pub fn new(max_entries: usize) -> Self {
+        Self {
+            inner: KeyedRateLimiter::new(max_entries, "User"),
+        }
+    }
+
+    /// Check if a user can make a new connection (returns true if allowed)
+    pub fn check(&self, username: &str, max_per_minute: u32) -> bool {
+        self.inner.check_key(username.to_string(), max_per_minute)
+    }
+
+    /// Remove entries that haven't been used for `max_age`.
+    pub fn cleanup_stale(&self, max_age: Duration) {
+        self.inner.cleanup_stale(max_age);
+    }
+
+    /// Current number of tracked entries.
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    /// Whether the rate limiter has no tracked entries.
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
     }
 }
 

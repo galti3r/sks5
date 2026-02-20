@@ -71,7 +71,6 @@ fn prompt_new_user(config: &mut AppConfig) -> Result<()> {
         username,
         password_hash,
         authorized_keys,
-        allow_forwarding: true,
         allow_shell: Some(allow_shell),
         max_new_connections_per_minute: 0,
         max_bandwidth_kbps: 0,
@@ -315,11 +314,6 @@ fn prompt_shell_forwarding(user: &mut UserConfig) -> Result<()> {
             .default(user.allow_shell.unwrap_or(true))
             .interact()?,
     );
-
-    user.allow_forwarding = Confirm::new()
-        .with_prompt("Allow port forwarding (ssh -D, ssh -L)?")
-        .default(user.allow_forwarding)
-        .interact()?;
 
     user.colors = Some(
         Confirm::new()
@@ -594,13 +588,8 @@ fn prompt_time_access(user: &mut UserConfig) -> Result<()> {
         selected.iter().map(|&i| all_days[i].to_string()).collect()
     };
 
-    ta.timezone = Input::new()
-        .with_prompt("Timezone (IANA)")
-        .default(ta.timezone.clone())
-        .interact_text()?;
-
     // If no restrictions, remove
-    if ta.access_hours.is_none() && ta.access_days.is_empty() && ta.timezone == "UTC" {
+    if ta.access_hours.is_none() && ta.access_days.is_empty() {
         user.time_access = None;
     }
 

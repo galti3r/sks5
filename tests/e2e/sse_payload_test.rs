@@ -38,21 +38,18 @@ level = "debug"
 [[users]]
 username = "alice"
 password_hash = "{hash}"
-allow_forwarding = true
 allow_shell = true
 group = "team1"
 
 [[users]]
 username = "bob"
 password_hash = "{hash}"
-allow_forwarding = true
 allow_shell = true
 group = "team1"
 
 [[users]]
 username = "charlie"
 password_hash = "{hash}"
-allow_forwarding = true
 allow_shell = true
 group = "team2"
 "##

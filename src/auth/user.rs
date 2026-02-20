@@ -300,15 +300,24 @@ impl User {
             }
         }
 
-        // Check access_hours (if configured)
+        // Check access_hours (if configured) — fail-closed on malformed values
         if let Some(hours) = &ta.access_hours {
-            if let Some((start, end)) = parse_hour_range(hours) {
-                let now_mins = now.hour() * 60 + now.minute();
-                if now_mins < start || now_mins >= end {
+            match parse_hour_range(hours) {
+                Some((start, end)) => {
+                    let now_mins = now.hour() * 60 + now.minute();
+                    if now_mins < start || now_mins >= end {
+                        return false;
+                    }
+                }
+                None => {
+                    tracing::warn!(
+                        username = %self.username,
+                        access_hours = %hours,
+                        "Malformed access_hours format, denying access (fail-closed)"
+                    );
                     return false;
                 }
             }
-            // If parsing fails, treat as unrestricted (permissive fallback)
         }
 
         true
@@ -326,19 +335,7 @@ fn parse_hour_range(s: &str) -> Option<(u32, u32)> {
     Some((start, end))
 }
 
-/// Parse "HH:MM" into minutes from midnight.
-fn parse_hhmm(s: &str) -> Option<u32> {
-    let parts: Vec<&str> = s.trim().split(':').collect();
-    if parts.len() != 2 {
-        return None;
-    }
-    let h: u32 = parts[0].parse().ok()?;
-    let m: u32 = parts[1].parse().ok()?;
-    if h > 23 || m > 59 {
-        return None;
-    }
-    Some(h * 60 + m)
-}
+use crate::utils::parse_hhmm;
 
 /// Resolve ShellPermissions with user > group > default merging.
 ///
@@ -465,7 +462,6 @@ mod tests {
             server_id: "SSH-2.0-sks5_test".to_string(),
             banner: "test".to_string(),
             motd_path: None,
-            proxy_protocol: false,
             allowed_ciphers: Vec::new(),
             allowed_kex: Vec::new(),
             shutdown_timeout: 30,
@@ -491,7 +487,6 @@ mod tests {
             username: username.to_string(),
             password_hash: Some("hash".to_string()),
             authorized_keys: Vec::new(),
-            allow_forwarding: true,
             allow_shell: Some(true),
             max_new_connections_per_minute: 0,
             max_bandwidth_kbps: 0,
@@ -552,7 +547,6 @@ mod tests {
             max_bandwidth_kbps: Some(5000),
             max_aggregate_bandwidth_kbps: Some(10000),
             max_new_connections_per_minute: Some(20),
-            allow_forwarding: Some(true),
             allow_shell: Some(true),
             shell_permissions: Some(ShellPermissions {
                 show_connections: true,
@@ -613,7 +607,6 @@ mod tests {
             max_bandwidth_kbps: None,
             max_aggregate_bandwidth_kbps: None,
             max_new_connections_per_minute: None,
-            allow_forwarding: None,
             allow_shell: None,
             shell_permissions: None,
             motd: None,
@@ -674,7 +667,6 @@ mod tests {
                 "sat".to_string(),
                 "sun".to_string(),
             ],
-            timezone: "UTC".to_string(),
         });
 
         let user = User::from_config(
@@ -698,7 +690,6 @@ mod tests {
         cfg.time_access = Some(TimeAccessConfig {
             access_hours: None,
             access_days: vec![], // empty = no day restriction
-            timezone: "UTC".to_string(),
         });
 
         let user = User::from_config(

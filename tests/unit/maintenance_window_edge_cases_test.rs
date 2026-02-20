@@ -8,7 +8,6 @@ use sks5::config::types::MaintenanceWindowConfig;
 fn make_window(schedule: &str) -> MaintenanceWindowConfig {
     MaintenanceWindowConfig {
         schedule: schedule.to_string(),
-        timezone: "UTC".to_string(),
         message: "test maintenance".to_string(),
         disconnect_existing: false,
     }

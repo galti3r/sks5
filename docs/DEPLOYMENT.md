@@ -705,7 +705,6 @@ If placing sks5 behind a load balancer:
 
 - **SSH traffic**: Use TCP-mode load balancing (not HTTP). SSH is a stateful protocol.
 - **SOCKS5 traffic**: Requires sticky sessions (session affinity) since SOCKS5 connections are stateful.
-- **PROXY protocol**: Enable `proxy_protocol = true` if your load balancer supports HAProxy PROXY protocol v1/v2. This preserves the original client IP address.
 - **Health probes**: Use `/livez` (always 200) for liveness and `/health` (503 during maintenance) for readiness.
 - **Maintenance mode**: Toggle maintenance via `POST /api/maintenance`. The `/health` endpoint returns 503 during maintenance, allowing the load balancer to drain traffic.
 

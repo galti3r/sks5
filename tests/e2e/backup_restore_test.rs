@@ -32,7 +32,6 @@ level = "debug"
 [[users]]
 username = "alice"
 password_hash = "{hash}"
-allow_forwarding = true
 allow_shell = true
 "##
     );

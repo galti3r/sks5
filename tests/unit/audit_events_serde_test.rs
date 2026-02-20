@@ -10,7 +10,7 @@ use sks5::audit::events::AuditEvent;
 #[test]
 fn serde_auth_success_contains_all_fields() {
     let addr: SocketAddr = "1.2.3.4:5678".parse().unwrap();
-    let event = AuditEvent::auth_success("alice", &addr, "password");
+    let event = AuditEvent::auth_success("alice", &addr, "password", None);
     let json = serde_json::to_value(&event).unwrap();
 
     assert_eq!(json["event_type"], "auth.success");
@@ -28,7 +28,7 @@ fn serde_auth_success_contains_all_fields() {
 #[test]
 fn serde_auth_failure_contains_all_fields() {
     let addr: SocketAddr = "10.0.0.1:9999".parse().unwrap();
-    let event = AuditEvent::auth_failure("bob", &addr, "pubkey");
+    let event = AuditEvent::auth_failure("bob", &addr, "pubkey", None);
     let json = serde_json::to_value(&event).unwrap();
 
     assert_eq!(json["event_type"], "auth.failure");
@@ -54,6 +54,7 @@ fn serde_proxy_complete_contains_all_fields() {
         500,
         &addr,
         Some("93.184.216.34".to_string()),
+        None,
     );
     let json = serde_json::to_value(&event).unwrap();
 
@@ -74,7 +75,7 @@ fn serde_proxy_complete_contains_all_fields() {
 #[test]
 fn serde_proxy_complete_omits_resolved_ip_when_none() {
     let addr: SocketAddr = "1.2.3.4:5678".parse().unwrap();
-    let event = AuditEvent::proxy_complete("user", "host.com", 80, 100, 200, 50, &addr, None);
+    let event = AuditEvent::proxy_complete("user", "host.com", 80, 100, 200, 50, &addr, None, None);
     let json = serde_json::to_value(&event).unwrap();
 
     assert_eq!(json["event_type"], "proxy.complete");
@@ -94,6 +95,7 @@ fn serde_acl_deny_contains_all_fields() {
         "10.0.0.1",
         Some("deny *.evil.com".to_string()),
         "hostname blocked",
+        None,
     );
     let json = serde_json::to_value(&event).unwrap();
 
@@ -111,7 +113,9 @@ fn serde_acl_deny_contains_all_fields() {
 
 #[test]
 fn serde_acl_deny_omits_optional_fields_when_none() {
-    let event = AuditEvent::acl_deny("user", "host.com", 443, None, "1.2.3.4", None, "denied");
+    let event = AuditEvent::acl_deny(
+        "user", "host.com", 443, None, "1.2.3.4", None, "denied", None,
+    );
     let json = serde_json::to_value(&event).unwrap();
 
     assert_eq!(json["event_type"], "acl.deny");
@@ -129,7 +133,7 @@ fn serde_acl_deny_omits_optional_fields_when_none() {
 #[test]
 fn serde_connection_new_contains_all_fields() {
     let addr: SocketAddr = "172.16.0.5:8080".parse().unwrap();
-    let event = AuditEvent::connection_new(&addr, "ssh");
+    let event = AuditEvent::connection_new(&addr, "ssh", None);
     let json = serde_json::to_value(&event).unwrap();
 
     assert_eq!(json["event_type"], "connection.new");
@@ -142,7 +146,7 @@ fn serde_connection_new_contains_all_fields() {
 #[test]
 fn serde_connection_closed_contains_all_fields() {
     let addr: SocketAddr = "172.16.0.5:8080".parse().unwrap();
-    let event = AuditEvent::connection_closed(&addr, "socks5");
+    let event = AuditEvent::connection_closed(&addr, "socks5", None);
     let json = serde_json::to_value(&event).unwrap();
 
     assert_eq!(json["event_type"], "connection.closed");
@@ -179,7 +183,7 @@ fn serde_config_reload_includes_error_when_present() {
 
 #[test]
 fn serde_quota_exceeded_contains_all_fields() {
-    let event = AuditEvent::quota_exceeded("alice", "bandwidth", 1_000_000, 500_000);
+    let event = AuditEvent::quota_exceeded("alice", "bandwidth", 1_000_000, 500_000, None);
     let json = serde_json::to_value(&event).unwrap();
 
     assert_eq!(json["event_type"], "quota.exceeded");
@@ -194,7 +198,7 @@ fn serde_quota_exceeded_contains_all_fields() {
 #[test]
 fn serde_session_authenticated_contains_all_fields() {
     let addr: SocketAddr = "10.0.0.1:1234".parse().unwrap();
-    let event = AuditEvent::session_authenticated("alice", &addr, "ssh", "password+totp");
+    let event = AuditEvent::session_authenticated("alice", &addr, "ssh", "password+totp", None);
     let json = serde_json::to_value(&event).unwrap();
 
     assert_eq!(json["event_type"], "session.authenticated");
@@ -209,7 +213,7 @@ fn serde_session_authenticated_contains_all_fields() {
 #[test]
 fn serde_session_ended_contains_all_fields() {
     let addr: SocketAddr = "10.0.0.1:1234".parse().unwrap();
-    let event = AuditEvent::session_ended("alice", &addr, "ssh", 3600, 1_000_000);
+    let event = AuditEvent::session_ended("alice", &addr, "ssh", 3600, 1_000_000, None);
     let json = serde_json::to_value(&event).unwrap();
 
     assert_eq!(json["event_type"], "session.ended");
@@ -225,7 +229,7 @@ fn serde_session_ended_contains_all_fields() {
 #[test]
 fn serde_rate_limit_exceeded_contains_all_fields() {
     let addr: SocketAddr = "10.0.0.1:1234".parse().unwrap();
-    let event = AuditEvent::rate_limit_exceeded("alice", &addr, "per_user");
+    let event = AuditEvent::rate_limit_exceeded("alice", &addr, "per_user", None);
     let json = serde_json::to_value(&event).unwrap();
 
     assert_eq!(json["event_type"], "rate_limit.exceeded");
@@ -248,13 +252,13 @@ fn serde_maintenance_toggled_contains_all_fields() {
 }
 
 // ===========================================================================
-// Correlation ID: all *_with_cid constructors
+// Correlation ID: constructors with Some(cid)
 // ===========================================================================
 
 #[test]
 fn auth_success_with_cid_sets_correlation_id() {
     let addr: SocketAddr = "1.2.3.4:5678".parse().unwrap();
-    let event = AuditEvent::auth_success_with_cid("alice", &addr, "password", "cid-auth-001");
+    let event = AuditEvent::auth_success("alice", &addr, "password", Some("cid-auth-001"));
     let json = serde_json::to_value(&event).unwrap();
 
     assert_eq!(json["event_type"], "auth.success");
@@ -267,7 +271,7 @@ fn auth_success_with_cid_sets_correlation_id() {
 #[test]
 fn auth_failure_with_cid_sets_correlation_id() {
     let addr: SocketAddr = "10.0.0.1:9999".parse().unwrap();
-    let event = AuditEvent::auth_failure_with_cid("bob", &addr, "pubkey", "cid-fail-002");
+    let event = AuditEvent::auth_failure("bob", &addr, "pubkey", Some("cid-fail-002"));
     let json = serde_json::to_value(&event).unwrap();
 
     assert_eq!(json["event_type"], "auth.failure");
@@ -280,7 +284,7 @@ fn auth_failure_with_cid_sets_correlation_id() {
 #[test]
 fn proxy_complete_with_cid_sets_correlation_id() {
     let addr: SocketAddr = "203.0.113.25:9999".parse().unwrap();
-    let event = AuditEvent::proxy_complete_with_cid(
+    let event = AuditEvent::proxy_complete(
         "charlie",
         "example.org",
         443,
@@ -289,7 +293,7 @@ fn proxy_complete_with_cid_sets_correlation_id() {
         250,
         &addr,
         Some("93.184.216.34".to_string()),
-        "cid-proxy-003",
+        Some("cid-proxy-003"),
     );
     let json = serde_json::to_value(&event).unwrap();
 
@@ -306,7 +310,7 @@ fn proxy_complete_with_cid_sets_correlation_id() {
 
 #[test]
 fn acl_deny_with_cid_sets_correlation_id() {
-    let event = AuditEvent::acl_deny_with_cid(
+    let event = AuditEvent::acl_deny(
         "eve",
         "evil.com",
         80,
@@ -314,7 +318,7 @@ fn acl_deny_with_cid_sets_correlation_id() {
         "10.0.0.1",
         Some("deny *".to_string()),
         "policy denied",
-        "cid-acl-004",
+        Some("cid-acl-004"),
     );
     let json = serde_json::to_value(&event).unwrap();
 
@@ -329,7 +333,7 @@ fn acl_deny_with_cid_sets_correlation_id() {
 #[test]
 fn connection_new_with_cid_sets_correlation_id() {
     let addr: SocketAddr = "172.16.0.5:8080".parse().unwrap();
-    let event = AuditEvent::connection_new_with_cid(&addr, "ssh", "cid-conn-005");
+    let event = AuditEvent::connection_new(&addr, "ssh", Some("cid-conn-005"));
     let json = serde_json::to_value(&event).unwrap();
 
     assert_eq!(json["event_type"], "connection.new");
@@ -341,7 +345,7 @@ fn connection_new_with_cid_sets_correlation_id() {
 #[test]
 fn connection_closed_with_cid_sets_correlation_id() {
     let addr: SocketAddr = "172.16.0.5:8080".parse().unwrap();
-    let event = AuditEvent::connection_closed_with_cid(&addr, "socks5", "cid-conn-006");
+    let event = AuditEvent::connection_closed(&addr, "socks5", Some("cid-conn-006"));
     let json = serde_json::to_value(&event).unwrap();
 
     assert_eq!(json["event_type"], "connection.closed");
@@ -352,8 +356,7 @@ fn connection_closed_with_cid_sets_correlation_id() {
 
 #[test]
 fn quota_exceeded_with_cid_sets_correlation_id() {
-    let event =
-        AuditEvent::quota_exceeded_with_cid("alice", "connections", 100, 50, "cid-quota-007");
+    let event = AuditEvent::quota_exceeded("alice", "connections", 100, 50, Some("cid-quota-007"));
     let json = serde_json::to_value(&event).unwrap();
 
     assert_eq!(json["event_type"], "quota.exceeded");
@@ -368,7 +371,7 @@ fn quota_exceeded_with_cid_sets_correlation_id() {
 fn session_authenticated_with_cid_sets_correlation_id() {
     let addr: SocketAddr = "10.0.0.1:1234".parse().unwrap();
     let event =
-        AuditEvent::session_authenticated_with_cid("alice", &addr, "ssh", "pubkey", "cid-sess-008");
+        AuditEvent::session_authenticated("alice", &addr, "ssh", "pubkey", Some("cid-sess-008"));
     let json = serde_json::to_value(&event).unwrap();
 
     assert_eq!(json["event_type"], "session.authenticated");
@@ -383,7 +386,7 @@ fn session_authenticated_with_cid_sets_correlation_id() {
 fn session_ended_with_cid_sets_correlation_id() {
     let addr: SocketAddr = "10.0.0.1:1234".parse().unwrap();
     let event =
-        AuditEvent::session_ended_with_cid("alice", &addr, "ssh", 7200, 2_000_000, "cid-sess-009");
+        AuditEvent::session_ended("alice", &addr, "ssh", 7200, 2_000_000, Some("cid-sess-009"));
     let json = serde_json::to_value(&event).unwrap();
 
     assert_eq!(json["event_type"], "session.ended");
@@ -398,7 +401,7 @@ fn session_ended_with_cid_sets_correlation_id() {
 #[test]
 fn rate_limit_exceeded_with_cid_sets_correlation_id() {
     let addr: SocketAddr = "10.0.0.1:1234".parse().unwrap();
-    let event = AuditEvent::rate_limit_exceeded_with_cid("alice", &addr, "global", "cid-rate-010");
+    let event = AuditEvent::rate_limit_exceeded("alice", &addr, "global", Some("cid-rate-010"));
     let json = serde_json::to_value(&event).unwrap();
 
     assert_eq!(json["event_type"], "rate_limit.exceeded");
@@ -470,28 +473,29 @@ fn proxy_complete_bytes_transferred_is_sum_of_up_and_down() {
     let addr: SocketAddr = "1.2.3.4:5678".parse().unwrap();
 
     // Case 1: typical values
-    let event = AuditEvent::proxy_complete("user", "host.com", 80, 1000, 2000, 100, &addr, None);
+    let event =
+        AuditEvent::proxy_complete("user", "host.com", 80, 1000, 2000, 100, &addr, None, None);
     let json = serde_json::to_value(&event).unwrap();
     assert_eq!(json["bytes_transferred"], 3000);
     assert_eq!(json["bytes_uploaded"], 1000);
     assert_eq!(json["bytes_downloaded"], 2000);
 
     // Case 2: zero upload
-    let event = AuditEvent::proxy_complete("user", "host.com", 80, 0, 5000, 100, &addr, None);
+    let event = AuditEvent::proxy_complete("user", "host.com", 80, 0, 5000, 100, &addr, None, None);
     let json = serde_json::to_value(&event).unwrap();
     assert_eq!(json["bytes_transferred"], 5000);
     assert_eq!(json["bytes_uploaded"], 0);
     assert_eq!(json["bytes_downloaded"], 5000);
 
     // Case 3: zero download
-    let event = AuditEvent::proxy_complete("user", "host.com", 80, 4096, 0, 100, &addr, None);
+    let event = AuditEvent::proxy_complete("user", "host.com", 80, 4096, 0, 100, &addr, None, None);
     let json = serde_json::to_value(&event).unwrap();
     assert_eq!(json["bytes_transferred"], 4096);
     assert_eq!(json["bytes_uploaded"], 4096);
     assert_eq!(json["bytes_downloaded"], 0);
 
     // Case 4: both zero
-    let event = AuditEvent::proxy_complete("user", "host.com", 80, 0, 0, 100, &addr, None);
+    let event = AuditEvent::proxy_complete("user", "host.com", 80, 0, 0, 100, &addr, None, None);
     let json = serde_json::to_value(&event).unwrap();
     assert_eq!(json["bytes_transferred"], 0);
 
@@ -499,7 +503,7 @@ fn proxy_complete_bytes_transferred_is_sum_of_up_and_down() {
     let large_up: u64 = u64::MAX / 2;
     let large_down: u64 = u64::MAX / 2;
     let event = AuditEvent::proxy_complete(
-        "user", "host.com", 80, large_up, large_down, 100, &addr, None,
+        "user", "host.com", 80, large_up, large_down, 100, &addr, None, None,
     );
     let json = serde_json::to_value(&event).unwrap();
     assert_eq!(json["bytes_transferred"], large_up + large_down);
@@ -508,7 +512,7 @@ fn proxy_complete_bytes_transferred_is_sum_of_up_and_down() {
 #[test]
 fn proxy_complete_with_cid_bytes_transferred_is_sum() {
     let addr: SocketAddr = "1.2.3.4:5678".parse().unwrap();
-    let event = AuditEvent::proxy_complete_with_cid(
+    let event = AuditEvent::proxy_complete(
         "user",
         "host.com",
         80,
@@ -517,7 +521,7 @@ fn proxy_complete_with_cid_bytes_transferred_is_sum() {
         200,
         &addr,
         None,
-        "cid-bytes-011",
+        Some("cid-bytes-011"),
     );
     let json = serde_json::to_value(&event).unwrap();
 
@@ -536,16 +540,16 @@ fn correlation_id_absent_in_json_when_none_for_all_variants() {
     let addr: SocketAddr = "1.2.3.4:5678".parse().unwrap();
 
     let events: Vec<AuditEvent> = vec![
-        AuditEvent::auth_success("u", &addr, "pw"),
-        AuditEvent::auth_failure("u", &addr, "pw"),
-        AuditEvent::proxy_complete("u", "h", 80, 0, 0, 0, &addr, None),
-        AuditEvent::acl_deny("u", "h", 80, None, "1.2.3.4", None, "r"),
-        AuditEvent::connection_new(&addr, "ssh"),
-        AuditEvent::connection_closed(&addr, "ssh"),
-        AuditEvent::quota_exceeded("u", "bw", 0, 0),
-        AuditEvent::session_authenticated("u", &addr, "ssh", "pw"),
-        AuditEvent::session_ended("u", &addr, "ssh", 0, 0),
-        AuditEvent::rate_limit_exceeded("u", &addr, "per_user"),
+        AuditEvent::auth_success("u", &addr, "pw", None),
+        AuditEvent::auth_failure("u", &addr, "pw", None),
+        AuditEvent::proxy_complete("u", "h", 80, 0, 0, 0, &addr, None, None),
+        AuditEvent::acl_deny("u", "h", 80, None, "1.2.3.4", None, "r", None),
+        AuditEvent::connection_new(&addr, "ssh", None),
+        AuditEvent::connection_closed(&addr, "ssh", None),
+        AuditEvent::quota_exceeded("u", "bw", 0, 0, None),
+        AuditEvent::session_authenticated("u", &addr, "ssh", "pw", None),
+        AuditEvent::session_ended("u", &addr, "ssh", 0, 0, None),
+        AuditEvent::rate_limit_exceeded("u", &addr, "per_user", None),
     ];
 
     for event in &events {
@@ -560,21 +564,21 @@ fn correlation_id_absent_in_json_when_none_for_all_variants() {
 }
 
 #[test]
-fn correlation_id_present_in_json_when_some_for_all_with_cid_variants() {
+fn correlation_id_present_in_json_when_some_for_all_variants() {
     let addr: SocketAddr = "1.2.3.4:5678".parse().unwrap();
     let cid = "test-cid-unified";
 
     let events: Vec<AuditEvent> = vec![
-        AuditEvent::auth_success_with_cid("u", &addr, "pw", cid),
-        AuditEvent::auth_failure_with_cid("u", &addr, "pw", cid),
-        AuditEvent::proxy_complete_with_cid("u", "h", 80, 0, 0, 0, &addr, None, cid),
-        AuditEvent::acl_deny_with_cid("u", "h", 80, None, "1.2.3.4", None, "r", cid),
-        AuditEvent::connection_new_with_cid(&addr, "ssh", cid),
-        AuditEvent::connection_closed_with_cid(&addr, "ssh", cid),
-        AuditEvent::quota_exceeded_with_cid("u", "bw", 0, 0, cid),
-        AuditEvent::session_authenticated_with_cid("u", &addr, "ssh", "pw", cid),
-        AuditEvent::session_ended_with_cid("u", &addr, "ssh", 0, 0, cid),
-        AuditEvent::rate_limit_exceeded_with_cid("u", &addr, "per_user", cid),
+        AuditEvent::auth_success("u", &addr, "pw", Some(cid)),
+        AuditEvent::auth_failure("u", &addr, "pw", Some(cid)),
+        AuditEvent::proxy_complete("u", "h", 80, 0, 0, 0, &addr, None, Some(cid)),
+        AuditEvent::acl_deny("u", "h", 80, None, "1.2.3.4", None, "r", Some(cid)),
+        AuditEvent::connection_new(&addr, "ssh", Some(cid)),
+        AuditEvent::connection_closed(&addr, "ssh", Some(cid)),
+        AuditEvent::quota_exceeded("u", "bw", 0, 0, Some(cid)),
+        AuditEvent::session_authenticated("u", &addr, "ssh", "pw", Some(cid)),
+        AuditEvent::session_ended("u", &addr, "ssh", 0, 0, Some(cid)),
+        AuditEvent::rate_limit_exceeded("u", &addr, "per_user", Some(cid)),
     ];
 
     for event in &events {
@@ -620,19 +624,19 @@ fn serde_to_string_produces_valid_json_for_all_variants() {
     let ip: IpAddr = "192.168.1.1".parse().unwrap();
 
     let events: Vec<AuditEvent> = vec![
-        AuditEvent::auth_success("u", &addr, "pw"),
-        AuditEvent::auth_failure("u", &addr, "pw"),
-        AuditEvent::proxy_complete("u", "h", 80, 100, 200, 50, &addr, None),
-        AuditEvent::acl_deny("u", "h", 80, None, "1.2.3.4", None, "r"),
+        AuditEvent::auth_success("u", &addr, "pw", None),
+        AuditEvent::auth_failure("u", &addr, "pw", None),
+        AuditEvent::proxy_complete("u", "h", 80, 100, 200, 50, &addr, None, None),
+        AuditEvent::acl_deny("u", "h", 80, None, "1.2.3.4", None, "r", None),
         AuditEvent::ban_created(&ip, 60),
         AuditEvent::ban_expired(&ip),
-        AuditEvent::connection_new(&addr, "ssh"),
-        AuditEvent::connection_closed(&addr, "ssh"),
+        AuditEvent::connection_new(&addr, "ssh", None),
+        AuditEvent::connection_closed(&addr, "ssh", None),
         AuditEvent::config_reload(3, true, None),
-        AuditEvent::quota_exceeded("u", "bw", 100, 50),
-        AuditEvent::session_authenticated("u", &addr, "ssh", "pw"),
-        AuditEvent::session_ended("u", &addr, "ssh", 60, 1000),
-        AuditEvent::rate_limit_exceeded("u", &addr, "per_user"),
+        AuditEvent::quota_exceeded("u", "bw", 100, 50, None),
+        AuditEvent::session_authenticated("u", &addr, "ssh", "pw", None),
+        AuditEvent::session_ended("u", &addr, "ssh", 60, 1000, None),
+        AuditEvent::rate_limit_exceeded("u", &addr, "per_user", None),
         AuditEvent::maintenance_toggled(false, "config_reload"),
     ];
 

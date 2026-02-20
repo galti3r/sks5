@@ -331,7 +331,6 @@ level = "debug"
 [[users]]
 username = "testuser"
 password_hash = "{password_hash}"
-allow_forwarding = true
 allow_shell = true
 "##
     );
@@ -366,7 +365,6 @@ level = "debug"
 [[users]]
 username = "testuser"
 password_hash = "{user1_hash}"
-allow_forwarding = true
 allow_shell = true
 
 [[users]]
@@ -409,7 +407,6 @@ level = "debug"
 [[users]]
 username = "alice"
 password_hash = "{password_hash}"
-allow_forwarding = true
 allow_shell = true
 "##
     );
@@ -438,7 +435,6 @@ level = "debug"
 [[users]]
 username = "testuser"
 password_hash = "{password_hash}"
-allow_forwarding = true
 allow_shell = true
 "##
     );
@@ -489,7 +485,6 @@ level = "debug"
 [[users]]
 username = "testuser"
 password_hash = "{password_hash}"
-allow_forwarding = true
 allow_shell = true
 
 [users.acl]

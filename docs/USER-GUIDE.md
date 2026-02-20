@@ -1082,7 +1082,6 @@ Once the limit is reached, new connections are denied until an administrator res
 
 **"Connection not allowed" when forwarding**
 - Check ACL rules: `show acl` in the shell
-- Check if `allow_forwarding = true` for the user
 - Check IP Guard (`ip_guard_enabled`) if connecting to private IPs
 - Verify the ACL rule format matches your destination
 

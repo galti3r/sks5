@@ -48,7 +48,6 @@ pub fn build_config_from_env() -> anyhow::Result<AppConfig> {
             server_id: opt_env("SKS5_SERVER_ID").unwrap_or_else(|| "SSH-2.0-sks5".to_string()),
             banner: opt_env("SKS5_BANNER").unwrap_or_else(|| "Welcome to sks5".to_string()),
             motd_path: opt_env("SKS5_MOTD_PATH").map(PathBuf::from),
-            proxy_protocol: parse_bool_env("SKS5_PROXY_PROTOCOL", false),
             allowed_ciphers: parse_csv_env("SKS5_ALLOWED_CIPHERS"),
             allowed_kex: parse_csv_env("SKS5_ALLOWED_KEX"),
             shutdown_timeout: parse_env("SKS5_SHUTDOWN_TIMEOUT", 30),
@@ -191,7 +190,6 @@ fn build_user_config(
         username,
         password_hash,
         authorized_keys,
-        allow_forwarding: parse_bool_env(&format!("{prefix}ALLOW_FORWARDING"), true),
         allow_shell: opt_env(&format!("{prefix}ALLOW_SHELL"))
             .map(|v| matches!(v.to_ascii_lowercase().as_str(), "true" | "1" | "yes")),
         max_new_connections_per_minute: parse_env(
@@ -339,9 +337,6 @@ pub fn apply_env_overrides(config: &mut AppConfig) {
     }
     if let Some(v) = opt_env("SKS5_BANNER") {
         config.server.banner = v;
-    }
-    if std::env::var("SKS5_PROXY_PROTOCOL").is_ok() {
-        config.server.proxy_protocol = parse_bool_env("SKS5_PROXY_PROTOCOL", false);
     }
 
     // SOCKS5 handshake timeout override
@@ -754,7 +749,6 @@ mod tests {
             "SKS5_USER_0_ACL_ALLOW",
             "SKS5_USER_1_USERNAME",
             "SKS5_USER_1_PASSWORD_HASH",
-            "SKS5_USER_1_ALLOW_FORWARDING",
             "SKS5_USER_1_ALLOW_SHELL",
             "SKS5_ARGON2_MEMORY_COST",
             "SKS5_ARGON2_TIME_COST",
@@ -945,7 +939,6 @@ password_hash = "argon2id-fake"
                 ("SKS5_USER_0_ACL_ALLOW", "*.example.com:443"),
                 ("SKS5_USER_1_USERNAME", "bob"),
                 ("SKS5_USER_1_PASSWORD_HASH", "argon2id-fake-bob"),
-                ("SKS5_USER_1_ALLOW_FORWARDING", "false"),
                 ("SKS5_USER_1_ALLOW_SHELL", "false"),
             ],
             || {
@@ -964,7 +957,6 @@ password_hash = "argon2id-fake"
                 assert_eq!(config.users[0].allow_shell, Some(true));
 
                 assert_eq!(config.users[1].username, "bob");
-                assert!(!config.users[1].allow_forwarding);
                 assert_eq!(config.users[1].allow_shell, Some(false));
             },
         );

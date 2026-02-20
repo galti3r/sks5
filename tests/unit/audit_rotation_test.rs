@@ -21,7 +21,7 @@ async fn rotation_creates_rotated_file_when_size_exceeded() {
     // Send enough events to trigger rotation
     for i in 0..10 {
         logger
-            .log_auth_success(&format!("user{i}"), &source, "password")
+            .log_auth_success(&format!("user{i}"), &source, "password", None)
             .await;
     }
 
@@ -52,7 +52,7 @@ async fn rotation_shifts_files_to_higher_numbers() {
     // Send many events to trigger multiple rotations
     for i in 0..30 {
         logger
-            .log_auth_success(&format!("user{i}"), &source, "password")
+            .log_auth_success(&format!("user{i}"), &source, "password", None)
             .await;
     }
 
@@ -79,7 +79,7 @@ async fn rotation_respects_max_files_limit() {
     // Send many events to trigger multiple rotations
     for i in 0..30 {
         logger
-            .log_auth_success(&format!("user{i}"), &source, "password")
+            .log_auth_success(&format!("user{i}"), &source, "password", None)
             .await;
     }
 
@@ -106,7 +106,7 @@ async fn no_rotation_when_max_size_is_zero() {
 
     for i in 0..20 {
         logger
-            .log_auth_success(&format!("user{i}"), &source, "password")
+            .log_auth_success(&format!("user{i}"), &source, "password", None)
             .await;
     }
 
@@ -136,7 +136,7 @@ async fn cid_auth_success_includes_correlation_id() {
     let source: SocketAddr = "10.0.0.1:1234".parse().unwrap();
 
     logger
-        .log_auth_success_cid("alice", &source, "password", "cid-abc-123")
+        .log_auth_success("alice", &source, "password", Some("cid-abc-123"))
         .await;
 
     sleep(Duration::from_millis(100)).await;
@@ -158,7 +158,7 @@ async fn cid_auth_failure_includes_correlation_id() {
     let source: SocketAddr = "10.0.0.1:1234".parse().unwrap();
 
     logger
-        .log_auth_failure_cid("attacker", &source, "password", "cid-def-456")
+        .log_auth_failure("attacker", &source, "password", Some("cid-def-456"))
         .await;
 
     sleep(Duration::from_millis(100)).await;
@@ -179,7 +179,7 @@ async fn cid_proxy_complete_includes_correlation_id() {
     let source: SocketAddr = "10.0.0.1:1234".parse().unwrap();
 
     logger
-        .log_proxy_complete_cid(
+        .log_proxy_complete(
             "alice",
             "example.com",
             443,
@@ -188,7 +188,7 @@ async fn cid_proxy_complete_includes_correlation_id() {
             500,
             &source,
             Some("93.184.216.34".to_string()),
-            "cid-proxy-789",
+            Some("cid-proxy-789"),
         )
         .await;
 
@@ -211,7 +211,7 @@ async fn cid_connection_new_includes_correlation_id() {
     let logger = AuditLogger::new(Some(audit_path.clone()), 0, 0, None);
     let source: SocketAddr = "10.0.0.1:1234".parse().unwrap();
 
-    logger.log_connection_new_cid(&source, "ssh", "cid-conn-001");
+    logger.log_connection_new(&source, "ssh", Some("cid-conn-001"));
 
     sleep(Duration::from_millis(100)).await;
 
@@ -230,7 +230,7 @@ async fn cid_connection_closed_includes_correlation_id() {
     let logger = AuditLogger::new(Some(audit_path.clone()), 0, 0, None);
     let source: SocketAddr = "10.0.0.1:1234".parse().unwrap();
 
-    logger.log_connection_closed_cid(&source, "socks5", "cid-conn-002");
+    logger.log_connection_closed(&source, "socks5", Some("cid-conn-002"));
 
     sleep(Duration::from_millis(100)).await;
 
@@ -249,7 +249,7 @@ async fn cid_acl_deny_includes_correlation_id() {
 
     let logger = AuditLogger::new(Some(audit_path.clone()), 0, 0, None);
 
-    logger.log_acl_deny_cid(
+    logger.log_acl_deny(
         "eve",
         "blocked.com",
         80,
@@ -257,7 +257,7 @@ async fn cid_acl_deny_includes_correlation_id() {
         "10.0.0.1",
         Some("deny *.blocked.com".to_string()),
         "hostname blocked",
-        "cid-acl-003",
+        Some("cid-acl-003"),
     );
 
     sleep(Duration::from_millis(100)).await;
@@ -278,7 +278,13 @@ async fn cid_session_authenticated_includes_correlation_id() {
     let logger = AuditLogger::new(Some(audit_path.clone()), 0, 0, None);
     let source: SocketAddr = "10.0.0.1:1234".parse().unwrap();
 
-    logger.log_session_authenticated_cid("alice", &source, "ssh", "password+totp", "cid-sess-004");
+    logger.log_session_authenticated(
+        "alice",
+        &source,
+        "ssh",
+        "password+totp",
+        Some("cid-sess-004"),
+    );
 
     sleep(Duration::from_millis(100)).await;
 
@@ -298,7 +304,7 @@ async fn cid_rate_limit_exceeded_includes_correlation_id() {
     let logger = AuditLogger::new(Some(audit_path.clone()), 0, 0, None);
     let source: SocketAddr = "10.0.0.1:1234".parse().unwrap();
 
-    logger.log_rate_limit_exceeded_cid("alice", &source, "per_user", "cid-rate-005");
+    logger.log_rate_limit_exceeded("alice", &source, "per_user", Some("cid-rate-005"));
 
     sleep(Duration::from_millis(100)).await;
 

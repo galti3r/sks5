@@ -16,6 +16,52 @@ use std::time::Duration;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
+/// Atomically write data to disk: write to `.tmp`, fsync, chmod 0600, rename.
+///
+/// This ensures crash safety — the target file is either fully written or untouched.
+pub fn atomic_write_file(path: &Path, data: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+
+    let tmp_path = path.with_extension("tmp");
+    let mut file = std::fs::File::create(&tmp_path)?;
+    file.write_all(data)?;
+    file.sync_all()?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o600);
+        std::fs::set_permissions(&tmp_path, perms)?;
+    }
+
+    std::fs::rename(&tmp_path, path)?;
+    Ok(())
+}
+
+/// Load and deserialize a JSON file. Returns `Ok(None)` if missing,
+/// `Ok(Some(default))` if corrupt (with a warning).
+pub fn load_json_file<T: serde::de::DeserializeOwned + Default>(
+    path: &Path,
+) -> std::io::Result<Option<T>> {
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let data = std::fs::read_to_string(path)?;
+
+    match serde_json::from_str::<T>(&data) {
+        Ok(payload) => Ok(Some(payload)),
+        Err(e) => {
+            warn!(
+                path = %path.display(),
+                error = %e,
+                "Corrupt persistence file — using defaults"
+            );
+            Ok(Some(T::default()))
+        }
+    }
+}
+
 /// Manages the persistence data directory and coordinates subsystems.
 #[derive(Debug)]
 pub struct PersistenceManager {
@@ -604,7 +650,6 @@ max_auth_attempts = 5
 [[users]]
 username = "testuser"
 password_hash = "$argon2id$v=19$m=19456,t=2,p=1$fakesalt$fakehash"
-allow_forwarding = true
 "##;
         toml::from_str(toml_str).unwrap()
     }

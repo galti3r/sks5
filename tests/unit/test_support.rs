@@ -17,7 +17,6 @@ pub fn default_server_config() -> ServerConfig {
         server_id: "SSH-2.0-sks5_test".to_string(),
         banner: "test".to_string(),
         motd_path: None,
-        proxy_protocol: false,
         allowed_ciphers: Vec::new(),
         allowed_kex: Vec::new(),
         shutdown_timeout: 30,
@@ -40,7 +39,6 @@ pub fn default_user_config(username: &str) -> UserConfig {
         username: username.to_string(),
         password_hash: Some("hash".to_string()),
         authorized_keys: Vec::new(),
-        allow_forwarding: true,
         allow_shell: Some(true),
         max_new_connections_per_minute: 0,
         max_bandwidth_kbps: 0,
@@ -93,7 +91,6 @@ ban_enabled = false
 [[users]]
 username = "alice"
 password_hash = "{FAKE_HASH}"
-allow_forwarding = true
 allow_shell = true
 "##
     );
@@ -117,7 +114,6 @@ ban_enabled = false
 [[users]]
 username = "alice"
 password_hash = "{password_hash}"
-allow_forwarding = true
 allow_shell = true
 "##
     );
@@ -146,7 +142,6 @@ ip_guard_enabled = false
 [[users]]
 username = "alice"
 password_hash = "{password_hash}"
-allow_forwarding = true
 allow_shell = true
 "##
     );
@@ -172,7 +167,6 @@ ban_enabled = false
 [[users]]
 username = "alice"
 password_hash = "{password_hash}"
-allow_forwarding = true
 allow_shell = true
 "##
     );

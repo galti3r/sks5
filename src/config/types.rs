@@ -270,10 +270,6 @@ pub struct ServerConfig {
     #[serde(default = "default_banner")]
     pub banner: String,
     pub motd_path: Option<PathBuf>,
-    /// Enable HAProxy PROXY protocol v1/v2 header parsing on the SSH listener.
-    /// NOTE: Currently accepted in config for forward-compatibility but not yet enforced.
-    #[serde(default)]
-    pub proxy_protocol: bool,
     #[serde(default)]
     pub allowed_ciphers: Vec<String>,
     #[serde(default)]
@@ -502,9 +498,6 @@ pub struct GroupConfig {
     pub max_aggregate_bandwidth_kbps: Option<u64>,
     #[serde(default)]
     pub max_new_connections_per_minute: Option<u32>,
-    /// Deprecated: ignored at runtime, use ACL instead.
-    #[serde(default)]
-    pub allow_forwarding: Option<bool>,
     #[serde(default)]
     pub allow_shell: Option<bool>,
     #[serde(default)]
@@ -533,7 +526,7 @@ pub struct GroupConfig {
 }
 
 /// Time-based access restrictions
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct TimeAccessConfig {
     /// Allowed hours in "HH:MM-HH:MM" format (e.g. "08:00-18:00")
     #[serde(default)]
@@ -541,23 +534,6 @@ pub struct TimeAccessConfig {
     /// Allowed days: "mon", "tue", "wed", "thu", "fri", "sat", "sun"
     #[serde(default)]
     pub access_days: Vec<String>,
-    /// Timezone (default: UTC). IANA format e.g. "Europe/Paris"
-    #[serde(default = "default_timezone")]
-    pub timezone: String,
-}
-
-fn default_timezone() -> String {
-    "UTC".to_string()
-}
-
-impl Default for TimeAccessConfig {
-    fn default() -> Self {
-        Self {
-            access_hours: None,
-            access_days: Vec::new(),
-            timezone: default_timezone(),
-        }
-    }
 }
 
 /// Multi-window rate limits for new connections (per-second, per-minute, per-hour).
@@ -657,9 +633,6 @@ fn default_alert_window() -> u64 {
 pub struct MaintenanceWindowConfig {
     /// Cron-like schedule: "Sun 02:00-04:00" or "daily 03:00-04:00"
     pub schedule: String,
-    /// Timezone (default: UTC)
-    #[serde(default = "default_timezone")]
-    pub timezone: String,
     /// Message to show to connecting users during maintenance
     #[serde(default = "default_maintenance_message")]
     pub message: String,
@@ -681,8 +654,7 @@ impl MaintenanceWindowConfig {
     /// - `"Mon 22:00-23:00"` — every Monday between 22:00 and 23:00 UTC
     ///
     /// Day names (case-insensitive): mon, tue, wed, thu, fri, sat, sun
-    /// Time is always interpreted as UTC regardless of the timezone field
-    /// (timezone support for chrono-tz would require an additional dependency).
+    /// Time is always interpreted as UTC.
     pub fn is_active(&self, now: &chrono::DateTime<chrono::Utc>) -> bool {
         let parts: Vec<&str> = self.schedule.splitn(2, ' ').collect();
         if parts.len() != 2 {
@@ -714,8 +686,8 @@ impl MaintenanceWindowConfig {
             return false;
         }
 
-        let start = Self::parse_hhmm(time_parts[0]);
-        let end = Self::parse_hhmm(time_parts[1]);
+        let start = crate::utils::parse_hhmm(time_parts[0]);
+        let end = crate::utils::parse_hhmm(time_parts[1]);
 
         match (start, end) {
             (Some(start_mins), Some(end_mins)) => {
@@ -724,20 +696,6 @@ impl MaintenanceWindowConfig {
             }
             _ => false,
         }
-    }
-
-    /// Parse "HH:MM" into minutes from midnight.
-    fn parse_hhmm(s: &str) -> Option<u32> {
-        let parts: Vec<&str> = s.trim().split(':').collect();
-        if parts.len() != 2 {
-            return None;
-        }
-        let h: u32 = parts[0].parse().ok()?;
-        let m: u32 = parts[1].parse().ok()?;
-        if h > 23 || m > 59 {
-            return None;
-        }
-        Some(h * 60 + m)
     }
 }
 
@@ -749,7 +707,6 @@ mod maintenance_window_tests {
     fn make_window(schedule: &str) -> MaintenanceWindowConfig {
         MaintenanceWindowConfig {
             schedule: schedule.to_string(),
-            timezone: "UTC".to_string(),
             message: "maintenance".to_string(),
             disconnect_existing: false,
         }
@@ -1212,7 +1169,7 @@ pub struct ParsedUpstreamProxy {
     pub host: String,
     pub port: u16,
     pub username: Option<String>,
-    pub password: Option<String>,
+    pub password: Option<zeroize::Zeroizing<String>>,
 }
 
 impl ParsedUpstreamProxy {
@@ -1251,10 +1208,12 @@ impl ParsedUpstreamProxy {
         };
 
         let password = parsed.password().map(|p| {
-            percent_encoding::percent_decode_str(p)
-                .decode_utf8()
-                .map(|s| s.into_owned())
-                .unwrap_or_else(|_| p.to_string())
+            zeroize::Zeroizing::new(
+                percent_encoding::percent_decode_str(p)
+                    .decode_utf8()
+                    .map(|s| s.into_owned())
+                    .unwrap_or_else(|_| p.to_string()),
+            )
         });
 
         Ok(Self {
@@ -1346,9 +1305,6 @@ pub struct UserConfig {
     pub password_hash: Option<String>,
     #[serde(default)]
     pub authorized_keys: Vec<String>,
-    /// Deprecated: ignored at runtime, use ACL instead.
-    #[serde(default = "default_true")]
-    pub allow_forwarding: bool,
     #[serde(default)]
     pub allow_shell: Option<bool>,
     #[serde(default)]

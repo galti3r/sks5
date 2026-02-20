@@ -241,7 +241,7 @@ async fn test_connect_via_socks5_with_auth() {
         host: "127.0.0.1".to_string(),
         port: mock_addr.port(),
         username: Some("proxyuser".to_string()),
-        password: Some("proxypass".to_string()),
+        password: Some(zeroize::Zeroizing::new("proxypass".to_string())),
     };
 
     let mut stream = connect_via_socks5(&proxy, "target.example.com", 443, Duration::from_secs(5))
@@ -307,7 +307,7 @@ async fn test_connect_via_socks5_wrong_auth_credentials() {
         host: "127.0.0.1".to_string(),
         port: mock_addr.port(),
         username: Some("wronguser".to_string()),
-        password: Some("wrongpass".to_string()),
+        password: Some(zeroize::Zeroizing::new("wrongpass".to_string())),
     };
 
     let result = connect_via_socks5(&proxy, "example.com", 80, Duration::from_secs(5)).await;

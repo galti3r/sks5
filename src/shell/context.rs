@@ -40,14 +40,6 @@ pub struct ShellContext {
 impl ShellContext {
     /// Format the session uptime as a human-readable string.
     pub fn uptime(&self) -> String {
-        let elapsed = self.server_start_time.elapsed();
-        let secs = elapsed.as_secs();
-        if secs < 60 {
-            format!("{}s", secs)
-        } else if secs < 3600 {
-            format!("{}m {}s", secs / 60, secs % 60)
-        } else {
-            format!("{}h {}m {}s", secs / 3600, (secs % 3600) / 60, secs % 60)
-        }
+        crate::utils::format_duration(self.server_start_time.elapsed().as_secs())
     }
 }

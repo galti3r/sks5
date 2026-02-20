@@ -1,5 +1,5 @@
 use crate::config::types::{MotdConfig, ShellPermissions};
-use crate::utils::{format_bytes, format_bytes_used};
+use crate::utils::{format_bytes, format_bytes_used, format_duration};
 
 /// All template variables available for MOTD rendering.
 pub struct MotdContext {
@@ -33,21 +33,6 @@ pub struct MotdContext {
     pub denied: Vec<String>,
     /// List of ACL allow rules as display strings.
     pub allowed: Vec<String>,
-}
-
-/// Format seconds as "Xd Xh Xm".
-fn format_uptime(total_secs: u64) -> String {
-    let days = total_secs / 86400;
-    let hours = (total_secs % 86400) / 3600;
-    let minutes = (total_secs % 3600) / 60;
-
-    if days > 0 {
-        format!("{}d {}h {}m", days, hours, minutes)
-    } else if hours > 0 {
-        format!("{}h {}m", hours, minutes)
-    } else {
-        format!("{}m", minutes)
-    }
 }
 
 /// Check whether an ISO 8601 datetime string is within 7 days from now.
@@ -241,7 +226,7 @@ pub fn render_motd(
     let uptime_val = if !permissions.show_uptime {
         String::new()
     } else {
-        format_uptime(ctx.uptime)
+        format_duration(ctx.uptime)
     };
 
     let denied_val = if !permissions.show_acl {
@@ -436,7 +421,7 @@ pub fn resolve_motd_config(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::{format_bytes, format_bytes_used};
+    use crate::utils::{format_bytes, format_bytes_used, format_duration};
 
     fn sample_context() -> MotdContext {
         MotdContext {
@@ -449,7 +434,7 @@ mod tests {
             bandwidth_used: 1_073_741_824,   // 1 GB
             bandwidth_limit: 10_737_418_240, // 10 GB
             last_login: Some("2026-01-15T08:30:00Z".to_string()),
-            uptime: 90061, // 1d 1h 1m 1s
+            uptime: 90061, // 1d 1h
             version: "0.1.0".to_string(),
             group: Some("developers".to_string()),
             role: "user".to_string(),
@@ -503,23 +488,23 @@ mod tests {
     }
 
     #[test]
-    fn test_format_uptime_minutes_only() {
-        assert_eq!(format_uptime(300), "5m");
+    fn test_format_duration_minutes_only() {
+        assert_eq!(format_duration(300), "5m");
     }
 
     #[test]
-    fn test_format_uptime_hours_minutes() {
-        assert_eq!(format_uptime(3660), "1h 1m");
+    fn test_format_duration_hours_minutes() {
+        assert_eq!(format_duration(3660), "1h 1m");
     }
 
     #[test]
-    fn test_format_uptime_days_hours_minutes() {
-        assert_eq!(format_uptime(90061), "1d 1h 1m");
+    fn test_format_duration_days_hours() {
+        assert_eq!(format_duration(90061), "1d 1h");
     }
 
     #[test]
-    fn test_format_uptime_zero() {
-        assert_eq!(format_uptime(0), "0m");
+    fn test_format_duration_zero() {
+        assert_eq!(format_duration(0), "0s");
     }
 
     #[test]
@@ -539,7 +524,7 @@ mod tests {
         assert!(result.contains("║  Deny:  169.254.169.254:*, evil.com:*"));
         assert!(result.contains("║  Bandwidth: 1.0 GB / 10.0 GB"));
         assert!(result.contains("║  Expires: 2099-12-31T23:59:59Z"));
-        assert!(result.contains("║  Uptime: 1d 1h 1m"));
+        assert!(result.contains("║  Uptime: 1d 1h"));
         assert!(result.contains("sks5 Proxy  v0.1.0"));
         // Box-drawing structure present.
         assert!(result.contains("╔══"));

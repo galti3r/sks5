@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::io::Write;
 use std::path::Path;
-use tracing::{debug, warn};
+use tracing::debug;
 
 /// Persisted IP reputation payload.
 #[derive(Debug, Serialize, Deserialize)]
@@ -36,20 +35,7 @@ pub fn save_reputation(path: &Path, payload: &ReputationPayload) -> std::io::Res
     let data = serde_json::to_string_pretty(payload)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
-    let tmp_path = path.with_extension("tmp");
-
-    let mut file = std::fs::File::create(&tmp_path)?;
-    file.write_all(data.as_bytes())?;
-    file.sync_all()?;
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let perms = std::fs::Permissions::from_mode(0o600);
-        std::fs::set_permissions(&tmp_path, perms)?;
-    }
-
-    std::fs::rename(&tmp_path, path)?;
+    super::atomic_write_file(path, data.as_bytes())?;
     debug!(path = %path.display(), entries = payload.scores.len(), "Reputation saved");
     Ok(())
 }
@@ -59,30 +45,15 @@ pub fn save_reputation(path: &Path, payload: &ReputationPayload) -> std::io::Res
 /// Returns `Ok(None)` if the file does not exist.
 /// Returns `Ok(Some(default))` if the file is corrupt.
 pub fn load_reputation(path: &Path) -> std::io::Result<Option<ReputationPayload>> {
-    if !path.exists() {
-        return Ok(None);
+    let result = super::load_json_file::<ReputationPayload>(path)?;
+    if let Some(ref payload) = result {
+        debug!(
+            path = %path.display(),
+            entries = payload.scores.len(),
+            "Reputation loaded"
+        );
     }
-
-    let data = std::fs::read_to_string(path)?;
-
-    match serde_json::from_str::<ReputationPayload>(&data) {
-        Ok(payload) => {
-            debug!(
-                path = %path.display(),
-                entries = payload.scores.len(),
-                "Reputation loaded"
-            );
-            Ok(Some(payload))
-        }
-        Err(e) => {
-            warn!(
-                path = %path.display(),
-                error = %e,
-                "Corrupt reputation file — starting with empty scores"
-            );
-            Ok(Some(ReputationPayload::default()))
-        }
-    }
+    Ok(result)
 }
 
 #[cfg(test)]

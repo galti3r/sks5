@@ -11,7 +11,6 @@ fn test_non_interactive_config_is_valid() {
     assert_eq!(config.users.len(), 1);
     assert_eq!(config.users[0].username, "user");
     assert!(config.users[0].password_hash.is_some());
-    assert!(config.users[0].allow_forwarding);
     assert_eq!(config.users[0].allow_shell, Some(true));
 }
 

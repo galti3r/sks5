@@ -3,7 +3,7 @@ use std::sync::atomic::Ordering;
 
 use crate::shell::commands::CommandResult;
 use crate::shell::context::ShellContext;
-use crate::utils::format_bytes_used;
+use crate::utils::{format_bytes_used, format_duration};
 
 use super::colors::{color, BOLD, GREEN, RED, YELLOW};
 use super::show::format_rate;
@@ -430,18 +430,6 @@ fn admin_quota(args: &[String], ctx: &ShellContext) -> CommandResult {
 
     qt.reset_user(target);
     CommandResult::output(format!("Quota counters reset for '{}'\r\n", target))
-}
-
-fn format_duration(secs: u64) -> String {
-    if secs < 60 {
-        format!("{}s", secs)
-    } else if secs < 3600 {
-        format!("{}m {}s", secs / 60, secs % 60)
-    } else if secs < 86400 {
-        format!("{}h {}m", secs / 3600, (secs % 3600) / 60)
-    } else {
-        format!("{}d {}h", secs / 86400, (secs % 86400) / 3600)
-    }
 }
 
 #[cfg(test)]

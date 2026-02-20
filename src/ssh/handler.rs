@@ -145,11 +145,11 @@ impl SshHandler {
                     "SSH direct-tcpip rate limit exceeded (legacy)"
                 );
             }
-            self.ctx.audit.log_rate_limit_exceeded_cid(
+            self.ctx.audit.log_rate_limit_exceeded(
                 &username,
                 &self.peer_addr,
                 "legacy_per_minute",
-                &self.conn_id,
+                Some(&self.conn_id),
             );
             self.ctx.metrics.record_connection_rejected("rate_limited");
             return Ok(None);
@@ -169,11 +169,11 @@ impl SshHandler {
                     "SSH direct-tcpip quota rate limit exceeded"
                 );
             }
-            self.ctx.audit.log_rate_limit_exceeded_cid(
+            self.ctx.audit.log_rate_limit_exceeded(
                 &username,
                 &self.peer_addr,
                 &reason,
-                &self.conn_id,
+                Some(&self.conn_id),
             );
             self.ctx.metrics.record_connection_rejected("rate_limited");
             return Ok(None);
@@ -194,7 +194,9 @@ impl SshHandler {
                     "SSH direct-tcpip connection quota exceeded"
                 );
             }
-            self.ctx.audit.log_quota_exceeded(&username, &reason, 0, 0);
+            self.ctx
+                .audit
+                .log_quota_exceeded(&username, &reason, 0, 0, None);
             self.ctx
                 .metrics
                 .record_error(crate::metrics::error_types::QUOTA_EXCEEDED);
@@ -218,7 +220,9 @@ impl SshHandler {
                     "SSH direct-tcpip bandwidth quota already exhausted"
                 );
             }
-            self.ctx.audit.log_quota_exceeded(&username, &reason, 0, 0);
+            self.ctx
+                .audit
+                .log_quota_exceeded(&username, &reason, 0, 0, None);
             self.ctx
                 .metrics
                 .record_error(crate::metrics::error_types::QUOTA_EXCEEDED);
@@ -289,7 +293,7 @@ impl SshHandler {
         }
         self.ctx
             .audit
-            .log_auth_failure_cid(username, &self.peer_addr, method, &self.conn_id)
+            .log_auth_failure(username, &self.peer_addr, method, Some(&self.conn_id))
             .await;
         let metric_method = if method == "publickey" {
             "pubkey"
@@ -323,79 +327,67 @@ impl SshHandler {
     }
 }
 
-/// Test helper methods for inspecting SshHandler internal state.
-/// These are always compiled to allow external integration/unit tests in tests/.
+/// Public accessors used in production (e.g., server.rs logging).
 impl SshHandler {
-    /// Test helper: get current total auth attempts
+    pub fn conn_id(&self) -> &str {
+        &self.conn_id
+    }
+}
+
+/// Test helper methods for inspecting SshHandler internal state.
+impl SshHandler {
     pub fn total_auth_attempts(&self) -> u32 {
         self.total_auth_attempts
     }
 
-    /// Test helper: increment total auth attempts (simulates auth attempt)
     pub fn increment_auth_attempts(&mut self) {
         self.total_auth_attempts += 1;
     }
 
-    /// Test helper: get number of active shell channels
     pub fn shell_count(&self) -> usize {
         self.shells.len()
     }
 
-    /// Test helper: check if session is authenticated
     pub fn is_authenticated(&self) -> bool {
         self.session_state.authenticated
     }
 
-    /// Test helper: get the session username
     pub fn session_username(&self) -> Option<&str> {
         self.session_state.username.as_deref()
     }
 
-    /// Test helper: get the auth method
     pub fn auth_method(&self) -> &str {
         &self.session_state.auth_method
     }
 
-    /// Test helper: get the connection ID
-    pub fn conn_id(&self) -> &str {
-        &self.conn_id
-    }
-
-    /// Test helper: get the peer address
     pub fn peer_addr(&self) -> std::net::SocketAddr {
         self.peer_addr
     }
 
-    /// Test helper: set session authenticated state
     pub fn set_authenticated(&mut self, username: &str, method: &str) {
         self.session_state.authenticated = true;
         self.session_state.username = Some(username.to_string());
         self.session_state.auth_method = method.to_string();
     }
 
-    /// Test helper: set session unauthenticated
     pub fn set_unauthenticated(&mut self) {
         self.session_state.authenticated = false;
         self.session_state.username = None;
         self.session_state.auth_method = String::new();
     }
 
-    /// Test helper: get the ssh key fingerprint
     pub fn ssh_key_fingerprint(&self) -> Option<&str> {
         self.session_state.ssh_key_fingerprint.as_deref()
     }
 
-    /// Test helper: set the ssh key fingerprint
     pub fn set_ssh_key_fingerprint(&mut self, fp: &str) {
         self.session_state.ssh_key_fingerprint = Some(fp.to_string());
     }
 
-    /// Test helper: check if a new channel would be accepted based on current shell count
     pub fn would_accept_new_channel(&self) -> bool {
         self.shells.len() < MAX_CHANNELS_PER_CONNECTION
     }
 
-    /// Test helper: get access to the record_auth_failure method
     pub async fn test_record_auth_failure(
         &mut self,
         username: &str,
@@ -405,7 +397,6 @@ impl SshHandler {
         self.record_auth_failure(username, method, attempts).await
     }
 
-    /// Test helper: get access to validate_forwarding_request
     pub async fn test_validate_forwarding_request(
         &self,
         host: &str,
@@ -414,12 +405,10 @@ impl SshHandler {
         self.validate_forwarding_request(host, port).await
     }
 
-    /// Test helper: override the connected_at timestamp to simulate auth timeout
     pub fn set_connected_at(&mut self, instant: Instant) {
         self.connected_at = instant;
     }
 
-    /// Test helper: check if auth is timed out
     pub fn test_is_auth_timed_out(&self) -> bool {
         self.is_auth_timed_out()
     }
@@ -665,14 +654,14 @@ impl russh::server::Handler for SshHandler {
             self.register_kick_token(user);
             self.ctx
                 .audit
-                .log_auth_success_cid(user, &self.peer_addr, "password", &self.conn_id)
+                .log_auth_success(user, &self.peer_addr, "password", Some(&self.conn_id))
                 .await;
-            self.ctx.audit.log_session_authenticated_cid(
+            self.ctx.audit.log_session_authenticated(
                 user,
                 &self.peer_addr,
                 "ssh",
                 &self.session_state.auth_method,
-                &self.conn_id,
+                Some(&self.conn_id),
             );
             self.ctx.metrics.record_auth_success(user, "password");
             Ok(russh::server::Auth::Accept)
@@ -751,14 +740,14 @@ impl russh::server::Handler for SshHandler {
             self.session_state.ssh_key_fingerprint = Some(fingerprint);
             self.ctx
                 .audit
-                .log_auth_success_cid(user, &self.peer_addr, "publickey", &self.conn_id)
+                .log_auth_success(user, &self.peer_addr, "publickey", Some(&self.conn_id))
                 .await;
-            self.ctx.audit.log_session_authenticated_cid(
+            self.ctx.audit.log_session_authenticated(
                 user,
                 &self.peer_addr,
                 "ssh",
                 "publickey",
-                &self.conn_id,
+                Some(&self.conn_id),
             );
             self.ctx.metrics.record_auth_success(user, "pubkey");
             Ok(russh::server::Auth::Accept)
@@ -895,7 +884,7 @@ impl russh::server::Handler for SshHandler {
                                     "Forwarding completed"
                                 );
                                 audit
-                                    .log_proxy_complete_cid(
+                                    .log_proxy_complete(
                                         &username,
                                         &host,
                                         port,
@@ -904,7 +893,7 @@ impl russh::server::Handler for SshHandler {
                                         duration_ms,
                                         &peer,
                                         Some(resolved_addr.ip().to_string()),
-                                        &conn_id,
+                                        Some(&conn_id),
                                     )
                                     .await;
                                 metrics.record_bytes_transferred(&username, bytes_up + bytes_down);

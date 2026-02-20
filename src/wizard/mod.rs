@@ -56,7 +56,6 @@ pub fn run_wizard(non_interactive: bool) -> Result<AppConfig> {
             server_id: "SSH-2.0-sks5".to_string(),
             banner: "Welcome to sks5".to_string(),
             motd_path: None,
-            proxy_protocol: false,
             allowed_ciphers: Vec::new(),
             allowed_kex: Vec::new(),
             shutdown_timeout: 30,
@@ -274,7 +273,6 @@ fn build_non_interactive_config() -> Result<AppConfig> {
             server_id: "SSH-2.0-sks5".to_string(),
             banner: "Welcome to sks5".to_string(),
             motd_path: None,
-            proxy_protocol: false,
             allowed_ciphers: Vec::new(),
             allowed_kex: Vec::new(),
             shutdown_timeout: 30,
@@ -315,7 +313,6 @@ pub(crate) fn default_user(username: &str, password_hash: String) -> UserConfig 
         username: username.to_string(),
         password_hash: Some(password_hash),
         authorized_keys: Vec::new(),
-        allow_forwarding: true,
         allow_shell: Some(true),
         max_new_connections_per_minute: 0,
         max_bandwidth_kbps: 0,
@@ -499,7 +496,6 @@ mod tests {
         let user = default_user("alice", "hash123".to_string());
         assert_eq!(user.username, "alice");
         assert_eq!(user.password_hash, Some("hash123".to_string()));
-        assert!(user.allow_forwarding);
         assert_eq!(user.allow_shell, Some(true));
         assert_eq!(user.role, UserRole::User);
         assert!(user.group.is_none());

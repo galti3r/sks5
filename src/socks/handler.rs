@@ -16,7 +16,7 @@ pub async fn handle_connection(mut stream: TcpStream, ctx: Arc<AppContext>) -> R
     async {
         debug!(conn_id = %conn_id, peer = %peer_addr, "New SOCKS5 connection");
         ctx.audit
-            .log_connection_new_cid(&peer_addr, "socks5", &conn_id);
+            .log_connection_new(&peer_addr, "socks5", Some(&conn_id));
 
         // H-7: Timeout only covers handshake phase, not relay
         let handshake_timeout = socks5_handshake_timeout(&ctx.config);
@@ -79,7 +79,7 @@ pub async fn handle_connection(mut stream: TcpStream, ctx: Arc<AppContext>) -> R
         }
 
         ctx.audit
-            .log_connection_closed_cid(&peer_addr, "socks5", &conn_id);
+            .log_connection_closed(&peer_addr, "socks5", Some(&conn_id));
         Ok(())
     }
     .instrument(span)
@@ -162,7 +162,7 @@ async fn log_relay_complete(
         "{} relay completed", protocol_label
     );
     ctx.audit
-        .log_proxy_complete_cid(
+        .log_proxy_complete(
             &info.username,
             &info.host,
             info.port,
@@ -171,7 +171,7 @@ async fn log_relay_complete(
             duration_ms,
             peer_addr,
             Some(info.resolved_addr.ip().to_string()),
-            conn_id,
+            Some(conn_id),
         )
         .await;
     ctx.metrics
@@ -196,7 +196,7 @@ pub async fn handle_tls_connection(
     async {
         debug!(conn_id = %conn_id, peer = %peer_addr, "New SOCKS5 TLS connection");
         ctx.audit
-            .log_connection_new_cid(&peer_addr, "socks5-tls", &conn_id);
+            .log_connection_new(&peer_addr, "socks5-tls", Some(&conn_id));
 
         let handshake_timeout = socks5_handshake_timeout(&ctx.config);
 
@@ -257,7 +257,7 @@ pub async fn handle_tls_connection(
         }
 
         ctx.audit
-            .log_connection_closed_cid(&peer_addr, "socks5-tls", &conn_id);
+            .log_connection_closed(&peer_addr, "socks5-tls", Some(&conn_id));
         Ok(())
     }
     .instrument(span)
@@ -371,7 +371,7 @@ async fn socks5_handshake<S: AsyncRead + AsyncWrite + Unpin>(
             sec.record_auth_failure(&peer_addr.ip());
         }
         ctx.audit
-            .log_auth_failure_cid(&creds.username, peer_addr, audit_method, conn_id)
+            .log_auth_failure(&creds.username, peer_addr, audit_method, Some(conn_id))
             .await;
         ctx.metrics.record_auth_failure(metric_method);
         ctx.metrics
@@ -386,19 +386,19 @@ async fn socks5_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         debug!(conn_id = %conn_id, user = %creds.username, "flow: auth completed, checking access controls");
     }
     ctx.audit
-        .log_auth_success_cid(&creds.username, peer_addr, "socks5", conn_id)
+        .log_auth_success(&creds.username, peer_addr, "socks5", Some(conn_id))
         .await;
     let socks5_method = if totp_required && totp_code.is_some() {
         "password+totp"
     } else {
         "password"
     };
-    ctx.audit.log_session_authenticated_cid(
+    ctx.audit.log_session_authenticated(
         &creds.username,
         peer_addr,
         "socks5",
         socks5_method,
-        conn_id,
+        Some(conn_id),
     );
     ctx.metrics
         .record_auth_success(&creds.username, socks5_method);
@@ -432,11 +432,11 @@ async fn socks5_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         if ctx.config.logging.log_denied_connections {
             warn!(conn_id = %conn_id, user = %creds.username, limit = user.max_new_connections_per_minute, "SOCKS5 rate limit exceeded (legacy)");
         }
-        ctx.audit.log_rate_limit_exceeded_cid(
+        ctx.audit.log_rate_limit_exceeded(
             &creds.username,
             peer_addr,
             "legacy_per_minute",
-            conn_id,
+            Some(conn_id),
         );
         ctx.metrics.record_connection_rejected("rate_limited");
         return Ok(None);
@@ -452,7 +452,7 @@ async fn socks5_handshake<S: AsyncRead + AsyncWrite + Unpin>(
             warn!(conn_id = %conn_id, user = %creds.username, reason = %reason, "SOCKS5 quota rate limit exceeded");
         }
         ctx.audit
-            .log_rate_limit_exceeded_cid(&creds.username, peer_addr, &reason, conn_id);
+            .log_rate_limit_exceeded(&creds.username, peer_addr, &reason, Some(conn_id));
         ctx.metrics.record_connection_rejected("rate_limited");
         return Ok(None);
     }
@@ -466,7 +466,8 @@ async fn socks5_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         if ctx.config.logging.log_denied_connections {
             warn!(conn_id = %conn_id, user = %creds.username, reason = %reason, "SOCKS5 connection quota exceeded");
         }
-        ctx.audit.log_quota_exceeded(&creds.username, &reason, 0, 0);
+        ctx.audit
+            .log_quota_exceeded(&creds.username, &reason, 0, 0, None);
         ctx.metrics
             .record_error(crate::metrics::error_types::QUOTA_EXCEEDED);
         ctx.metrics.record_connection_rejected("quota_exceeded");
@@ -481,7 +482,8 @@ async fn socks5_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         if ctx.config.logging.log_denied_connections {
             warn!(conn_id = %conn_id, user = %creds.username, reason = %reason, "SOCKS5 bandwidth quota already exhausted");
         }
-        ctx.audit.log_quota_exceeded(&creds.username, &reason, 0, 0);
+        ctx.audit
+            .log_quota_exceeded(&creds.username, &reason, 0, 0, None);
         ctx.metrics
             .record_error(crate::metrics::error_types::QUOTA_EXCEEDED);
         ctx.metrics.record_connection_rejected("quota_exceeded");

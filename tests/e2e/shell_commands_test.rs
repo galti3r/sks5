@@ -6,19 +6,20 @@ use std::sync::Arc;
 use tokio::time::Duration;
 
 /// Execute a command via SSH exec_request (ssh user@host "command")
-/// Retries up to 3 times to handle transient SendError under parallel test load.
+/// Retries up to 5 times with exponential backoff to handle transient failures
+/// under parallel test load.
 async fn exec_command(port: u16, password: &str, command: &str) -> String {
     let mut last_err = String::new();
-    for attempt in 0..3 {
+    for attempt in 0..5 {
         if attempt > 0 {
-            tokio::time::sleep(Duration::from_millis(200)).await;
+            tokio::time::sleep(Duration::from_millis(200 * (1 << attempt.min(3)))).await;
         }
         match try_exec_command(port, password, command).await {
             Ok(output) => return output,
             Err(e) => last_err = e,
         }
     }
-    panic!("exec_command failed after 3 retries: {last_err}");
+    panic!("exec_command failed after 5 retries: {last_err}");
 }
 
 async fn try_exec_command(port: u16, password: &str, command: &str) -> Result<String, String> {

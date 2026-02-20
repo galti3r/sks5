@@ -145,50 +145,30 @@ pub enum AuditEvent {
 }
 
 impl AuditEvent {
-    pub fn auth_success(username: &str, source: &SocketAddr, method: &str) -> Self {
-        Self::AuthSuccess {
-            timestamp: Utc::now(),
-            correlation_id: None,
-            username: username.to_string(),
-            source_ip: source.ip().to_string(),
-            method: method.to_string(),
-        }
-    }
-
-    pub fn auth_success_with_cid(
+    pub fn auth_success(
         username: &str,
         source: &SocketAddr,
         method: &str,
-        cid: &str,
+        cid: Option<&str>,
     ) -> Self {
         Self::AuthSuccess {
             timestamp: Utc::now(),
-            correlation_id: Some(cid.to_string()),
+            correlation_id: cid.map(|s| s.to_string()),
             username: username.to_string(),
             source_ip: source.ip().to_string(),
             method: method.to_string(),
         }
     }
 
-    pub fn auth_failure(username: &str, source: &SocketAddr, method: &str) -> Self {
-        Self::AuthFailure {
-            timestamp: Utc::now(),
-            correlation_id: None,
-            username: username.to_string(),
-            source_ip: source.ip().to_string(),
-            method: method.to_string(),
-        }
-    }
-
-    pub fn auth_failure_with_cid(
+    pub fn auth_failure(
         username: &str,
         source: &SocketAddr,
         method: &str,
-        cid: &str,
+        cid: Option<&str>,
     ) -> Self {
         Self::AuthFailure {
             timestamp: Utc::now(),
-            correlation_id: Some(cid.to_string()),
+            correlation_id: cid.map(|s| s.to_string()),
             username: username.to_string(),
             source_ip: source.ip().to_string(),
             method: method.to_string(),
@@ -205,10 +185,11 @@ impl AuditEvent {
         duration_ms: u64,
         source: &SocketAddr,
         resolved_ip: Option<String>,
+        cid: Option<&str>,
     ) -> Self {
         Self::ProxyComplete {
             timestamp: Utc::now(),
-            correlation_id: None,
+            correlation_id: cid.map(|s| s.to_string()),
             username: username.to_string(),
             target_host: host.to_string(),
             target_port: port,
@@ -223,33 +204,6 @@ impl AuditEvent {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn proxy_complete_with_cid(
-        username: &str,
-        host: &str,
-        port: u16,
-        bytes_up: u64,
-        bytes_down: u64,
-        duration_ms: u64,
-        source: &SocketAddr,
-        resolved_ip: Option<String>,
-        cid: &str,
-    ) -> Self {
-        Self::ProxyComplete {
-            timestamp: Utc::now(),
-            correlation_id: Some(cid.to_string()),
-            username: username.to_string(),
-            target_host: host.to_string(),
-            target_port: port,
-            bytes_transferred: bytes_up + bytes_down,
-            bytes_uploaded: bytes_up,
-            bytes_downloaded: bytes_down,
-            duration_ms,
-            source_ip: source.ip().to_string(),
-            resolved_ip,
-            via_proxy: None,
-        }
-    }
-
     pub fn acl_deny(
         username: &str,
         host: &str,
@@ -258,10 +212,11 @@ impl AuditEvent {
         source_ip: &str,
         matched_rule: Option<String>,
         reason: &str,
+        cid: Option<&str>,
     ) -> Self {
         Self::AclDeny {
             timestamp: Utc::now(),
-            correlation_id: None,
+            correlation_id: cid.map(|s| s.to_string()),
             username: username.to_string(),
             target_host: host.to_string(),
             target_port: port,
@@ -272,61 +227,19 @@ impl AuditEvent {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn acl_deny_with_cid(
-        username: &str,
-        host: &str,
-        port: u16,
-        resolved_ip: Option<String>,
-        source_ip: &str,
-        matched_rule: Option<String>,
-        reason: &str,
-        cid: &str,
-    ) -> Self {
-        Self::AclDeny {
-            timestamp: Utc::now(),
-            correlation_id: Some(cid.to_string()),
-            username: username.to_string(),
-            target_host: host.to_string(),
-            target_port: port,
-            resolved_ip,
-            source_ip: source_ip.to_string(),
-            matched_rule,
-            reason: reason.to_string(),
-        }
-    }
-
-    pub fn connection_new(source: &SocketAddr, protocol: &str) -> Self {
+    pub fn connection_new(source: &SocketAddr, protocol: &str, cid: Option<&str>) -> Self {
         Self::ConnectionNew {
             timestamp: Utc::now(),
-            correlation_id: None,
+            correlation_id: cid.map(|s| s.to_string()),
             source_ip: source.ip().to_string(),
             protocol: protocol.to_string(),
         }
     }
 
-    pub fn connection_new_with_cid(source: &SocketAddr, protocol: &str, cid: &str) -> Self {
-        Self::ConnectionNew {
-            timestamp: Utc::now(),
-            correlation_id: Some(cid.to_string()),
-            source_ip: source.ip().to_string(),
-            protocol: protocol.to_string(),
-        }
-    }
-
-    pub fn connection_closed(source: &SocketAddr, protocol: &str) -> Self {
+    pub fn connection_closed(source: &SocketAddr, protocol: &str, cid: Option<&str>) -> Self {
         Self::ConnectionClosed {
             timestamp: Utc::now(),
-            correlation_id: None,
-            source_ip: source.ip().to_string(),
-            protocol: protocol.to_string(),
-        }
-    }
-
-    pub fn connection_closed_with_cid(source: &SocketAddr, protocol: &str, cid: &str) -> Self {
-        Self::ConnectionClosed {
-            timestamp: Utc::now(),
-            correlation_id: Some(cid.to_string()),
+            correlation_id: cid.map(|s| s.to_string()),
             source_ip: source.ip().to_string(),
             protocol: protocol.to_string(),
         }
@@ -346,27 +259,11 @@ impl AuditEvent {
         quota_type: &str,
         current_usage: u64,
         limit: u64,
+        cid: Option<&str>,
     ) -> Self {
         Self::QuotaExceeded {
             timestamp: Utc::now(),
-            correlation_id: None,
-            username: username.to_string(),
-            quota_type: quota_type.to_string(),
-            current_usage,
-            limit,
-        }
-    }
-
-    pub fn quota_exceeded_with_cid(
-        username: &str,
-        quota_type: &str,
-        current_usage: u64,
-        limit: u64,
-        cid: &str,
-    ) -> Self {
-        Self::QuotaExceeded {
-            timestamp: Utc::now(),
-            correlation_id: Some(cid.to_string()),
+            correlation_id: cid.map(|s| s.to_string()),
             username: username.to_string(),
             quota_type: quota_type.to_string(),
             current_usage,
@@ -379,27 +276,11 @@ impl AuditEvent {
         source: &SocketAddr,
         protocol: &str,
         method: &str,
+        cid: Option<&str>,
     ) -> Self {
         Self::SessionAuthenticated {
             timestamp: Utc::now(),
-            correlation_id: None,
-            username: username.to_string(),
-            source_ip: source.ip().to_string(),
-            protocol: protocol.to_string(),
-            method: method.to_string(),
-        }
-    }
-
-    pub fn session_authenticated_with_cid(
-        username: &str,
-        source: &SocketAddr,
-        protocol: &str,
-        method: &str,
-        cid: &str,
-    ) -> Self {
-        Self::SessionAuthenticated {
-            timestamp: Utc::now(),
-            correlation_id: Some(cid.to_string()),
+            correlation_id: cid.map(|s| s.to_string()),
             username: username.to_string(),
             source_ip: source.ip().to_string(),
             protocol: protocol.to_string(),
@@ -413,10 +294,11 @@ impl AuditEvent {
         protocol: &str,
         duration_secs: u64,
         total_bytes: u64,
+        cid: Option<&str>,
     ) -> Self {
         Self::SessionEnded {
             timestamp: Utc::now(),
-            correlation_id: None,
+            correlation_id: cid.map(|s| s.to_string()),
             username: username.to_string(),
             source_ip: source.ip().to_string(),
             protocol: protocol.to_string(),
@@ -425,44 +307,15 @@ impl AuditEvent {
         }
     }
 
-    pub fn session_ended_with_cid(
-        username: &str,
-        source: &SocketAddr,
-        protocol: &str,
-        duration_secs: u64,
-        total_bytes: u64,
-        cid: &str,
-    ) -> Self {
-        Self::SessionEnded {
-            timestamp: Utc::now(),
-            correlation_id: Some(cid.to_string()),
-            username: username.to_string(),
-            source_ip: source.ip().to_string(),
-            protocol: protocol.to_string(),
-            duration_secs,
-            total_bytes,
-        }
-    }
-
-    pub fn rate_limit_exceeded(username: &str, source: &SocketAddr, limit_type: &str) -> Self {
-        Self::RateLimitExceeded {
-            timestamp: Utc::now(),
-            correlation_id: None,
-            username: username.to_string(),
-            source_ip: source.ip().to_string(),
-            limit_type: limit_type.to_string(),
-        }
-    }
-
-    pub fn rate_limit_exceeded_with_cid(
+    pub fn rate_limit_exceeded(
         username: &str,
         source: &SocketAddr,
         limit_type: &str,
-        cid: &str,
+        cid: Option<&str>,
     ) -> Self {
         Self::RateLimitExceeded {
             timestamp: Utc::now(),
-            correlation_id: Some(cid.to_string()),
+            correlation_id: cid.map(|s| s.to_string()),
             username: username.to_string(),
             source_ip: source.ip().to_string(),
             limit_type: limit_type.to_string(),

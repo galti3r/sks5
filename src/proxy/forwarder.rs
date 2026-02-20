@@ -94,7 +94,7 @@ async fn relay_one_direction<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
                             if let (Some(ref audit), Some(ref username)) =
                                 (&params.audit, &params.username)
                             {
-                                audit.log_quota_exceeded(username, &reason, 0, 0);
+                                audit.log_quota_exceeded(username, &reason, 0, 0, None);
                             }
                             break;
                         }

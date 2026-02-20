@@ -1,4 +1,3 @@
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use tracing::{debug, warn};
 
@@ -17,20 +16,7 @@ pub fn save_config_snapshot(
     let filename = format!("{}.toml", timestamp);
     let path = history_dir.join(&filename);
 
-    // Atomic write
-    let tmp_path = path.with_extension("tmp");
-    let mut file = std::fs::File::create(&tmp_path)?;
-    file.write_all(config_content.as_bytes())?;
-    file.sync_all()?;
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let perms = std::fs::Permissions::from_mode(0o600);
-        std::fs::set_permissions(&tmp_path, perms)?;
-    }
-
-    std::fs::rename(&tmp_path, &path)?;
+    super::atomic_write_file(&path, config_content.as_bytes())?;
     debug!(path = %path.display(), "Config snapshot saved");
 
     // Prune oldest if over limit

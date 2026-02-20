@@ -212,7 +212,6 @@ fn full_config_with_all_sections() {
 [server]
 ssh_listen = "0.0.0.0:2222"
 socks5_listen = "0.0.0.0:1080"
-proxy_protocol = true
 
 [shell]
 hostname = "myhost"
@@ -249,7 +248,6 @@ events = ["auth_success"]
 [[users]]
 username = "admin"
 password_hash = "fakehash"
-allow_forwarding = true
 allow_shell = true
 max_new_connections_per_minute = 60
 source_ips = ["10.0.0.0/24"]
@@ -258,7 +256,6 @@ source_ips = ["10.0.0.0/24"]
     let config: AppConfig = toml::from_str(toml_str).unwrap();
 
     assert_eq!(config.server.socks5_listen.as_deref(), Some("0.0.0.0:1080"));
-    assert!(config.server.proxy_protocol);
     assert_eq!(config.shell.hostname, "myhost");
     assert_eq!(config.shell.prompt, "> ");
     assert_eq!(config.limits.max_connections, 500);

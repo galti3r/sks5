@@ -131,7 +131,6 @@ ssh_listen = "0.0.0.0:2222"
 [[users]]
 username = "alice"
 password_hash = "{hash}"
-allow_forwarding = true
 "##,
             hash = FAKE_HASH,
         );
@@ -139,6 +138,5 @@ allow_forwarding = true
         let redacted = redact_config(&config);
         assert_eq!(redacted.server.ssh_listen, "0.0.0.0:2222");
         assert_eq!(redacted.users[0].username, "alice");
-        assert!(redacted.users[0].allow_forwarding);
     }
 }

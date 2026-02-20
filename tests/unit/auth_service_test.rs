@@ -14,13 +14,11 @@ host_key_path = "/tmp/test-key"
 [[users]]
 username = "alice"
 password_hash = "{password_hash}"
-allow_forwarding = true
 allow_shell = true
 
 [[users]]
 username = "bob"
 authorized_keys = ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakeKeyForTestingPurposesOnly000000000000000 bob@test"]
-allow_forwarding = false
 allow_shell = false
 "##
     );
@@ -39,7 +37,6 @@ host_key_path = "/tmp/test-key"
 username = "alice"
 password_hash = "{password_hash}"
 expires_at = "2020-01-01T00:00:00Z"
-allow_forwarding = true
 allow_shell = true
 "##
     );
@@ -58,7 +55,6 @@ host_key_path = "/tmp/test-key"
 [[users]]
 username = "charlie"
 password_hash = "{hash}"
-allow_forwarding = true
 allow_shell = true
 "##
     );

@@ -48,6 +48,58 @@ pub fn format_bytes_used(bytes: u64) -> String {
     format_bytes(bytes)
 }
 
+/// Parse "HH:MM" into minutes from midnight.
+///
+/// Returns `None` for invalid formats (wrong number of parts, out-of-range hours/minutes).
+pub fn parse_hhmm(s: &str) -> Option<u32> {
+    let parts: Vec<&str> = s.trim().split(':').collect();
+    if parts.len() != 2 {
+        return None;
+    }
+    let h: u32 = parts[0].parse().ok()?;
+    let m: u32 = parts[1].parse().ok()?;
+    if h > 23 || m > 59 {
+        return None;
+    }
+    Some(h * 60 + m)
+}
+
+/// Format a duration in seconds as a human-readable string.
+///
+/// - `< 60s`: shows seconds (e.g., "30s")
+/// - `< 1h`: shows minutes + seconds (e.g., "1m 30s"), omits trailing zero
+/// - `< 1d`: shows hours + minutes (e.g., "1h 1m"), omits trailing zero
+/// - `>= 1d`: shows days + hours (e.g., "1d 1h"), omits trailing zero
+pub fn format_duration(secs: u64) -> String {
+    if secs < 60 {
+        format!("{}s", secs)
+    } else if secs < 3600 {
+        let m = secs / 60;
+        let s = secs % 60;
+        if s > 0 {
+            format!("{}m {}s", m, s)
+        } else {
+            format!("{}m", m)
+        }
+    } else if secs < 86400 {
+        let h = secs / 3600;
+        let m = (secs % 3600) / 60;
+        if m > 0 {
+            format!("{}h {}m", h, m)
+        } else {
+            format!("{}h", h)
+        }
+    } else {
+        let d = secs / 86400;
+        let h = (secs % 86400) / 3600;
+        if h > 0 {
+            format!("{}d {}h", d, h)
+        } else {
+            format!("{}d", d)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -106,5 +158,52 @@ mod tests {
         let unique: std::collections::HashSet<&String> = ids.iter().collect();
         // With 8 hex chars (~4 billion values), 100 IDs should all be unique
         assert_eq!(unique.len(), 100);
+    }
+
+    #[test]
+    fn test_format_duration_seconds() {
+        assert_eq!(format_duration(0), "0s");
+        assert_eq!(format_duration(30), "30s");
+        assert_eq!(format_duration(59), "59s");
+    }
+
+    #[test]
+    fn test_format_duration_minutes() {
+        assert_eq!(format_duration(60), "1m");
+        assert_eq!(format_duration(90), "1m 30s");
+        assert_eq!(format_duration(300), "5m");
+        assert_eq!(format_duration(3599), "59m 59s");
+    }
+
+    #[test]
+    fn test_format_duration_hours() {
+        assert_eq!(format_duration(3600), "1h");
+        assert_eq!(format_duration(3660), "1h 1m");
+        assert_eq!(format_duration(3661), "1h 1m");
+        assert_eq!(format_duration(7200), "2h");
+    }
+
+    #[test]
+    fn test_format_duration_days() {
+        assert_eq!(format_duration(86400), "1d");
+        assert_eq!(format_duration(90000), "1d 1h");
+        assert_eq!(format_duration(172800), "2d");
+    }
+
+    #[test]
+    fn test_parse_hhmm_valid() {
+        assert_eq!(parse_hhmm("00:00"), Some(0));
+        assert_eq!(parse_hhmm("09:30"), Some(570));
+        assert_eq!(parse_hhmm("23:59"), Some(1439));
+        assert_eq!(parse_hhmm(" 08:00 "), Some(480));
+    }
+
+    #[test]
+    fn test_parse_hhmm_invalid() {
+        assert_eq!(parse_hhmm("24:00"), None);
+        assert_eq!(parse_hhmm("12:60"), None);
+        assert_eq!(parse_hhmm("abc"), None);
+        assert_eq!(parse_hhmm("12"), None);
+        assert_eq!(parse_hhmm(""), None);
     }
 }

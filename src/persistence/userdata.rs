@@ -1,7 +1,6 @@
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{debug, warn};
@@ -224,36 +223,11 @@ fn save_user_file(path: &Path, data: &UserData) -> std::io::Result<()> {
     let json = serde_json::to_string_pretty(data)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
-    let tmp_path = path.with_extension("tmp");
-    let mut file = std::fs::File::create(&tmp_path)?;
-    file.write_all(json.as_bytes())?;
-    file.sync_all()?;
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let perms = std::fs::Permissions::from_mode(0o600);
-        std::fs::set_permissions(&tmp_path, perms)?;
-    }
-
-    std::fs::rename(&tmp_path, path)?;
-    Ok(())
+    super::atomic_write_file(path, json.as_bytes())
 }
 
 fn load_user_file(path: &Path) -> std::io::Result<Option<UserData>> {
-    if !path.exists() {
-        return Ok(None);
-    }
-
-    let data = std::fs::read_to_string(path)?;
-
-    match serde_json::from_str::<UserData>(&data) {
-        Ok(user_data) => Ok(Some(user_data)),
-        Err(e) => {
-            warn!(path = %path.display(), error = %e, "Corrupt user data file");
-            Ok(Some(UserData::default()))
-        }
-    }
+    super::load_json_file::<UserData>(path)
 }
 
 /// Spawn a background task that periodically flushes dirty user data.

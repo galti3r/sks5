@@ -16,7 +16,9 @@ async fn new_logger_with_path_creates_file() {
     let logger = AuditLogger::new(Some(audit_path.clone()), 0, 0, None);
 
     let source: SocketAddr = "192.168.1.1:12345".parse().unwrap();
-    logger.log_auth_success("test", &source, "password").await;
+    logger
+        .log_auth_success("test", &source, "password", None)
+        .await;
 
     sleep(Duration::from_millis(100)).await;
 
@@ -28,10 +30,24 @@ async fn new_logger_with_none_path_does_not_panic() {
     let logger = AuditLogger::new(None, 0, 0, None);
 
     let source: SocketAddr = "10.0.0.1:54321".parse().unwrap();
-    logger.log_auth_success("user1", &source, "pubkey").await;
-    logger.log_auth_failure("user2", &source, "password").await;
     logger
-        .log_proxy_complete("user1", "example.com", 443, 512, 512, 100, &source, None)
+        .log_auth_success("user1", &source, "pubkey", None)
+        .await;
+    logger
+        .log_auth_failure("user2", &source, "password", None)
+        .await;
+    logger
+        .log_proxy_complete(
+            "user1",
+            "example.com",
+            443,
+            512,
+            512,
+            100,
+            &source,
+            None,
+            None,
+        )
         .await;
 
     sleep(Duration::from_millis(50)).await;
@@ -44,10 +60,14 @@ async fn new_noop_logger_does_not_panic() {
     let source: SocketAddr = "10.0.0.1:1234".parse().unwrap();
 
     // All of these should silently drop events without panic
-    logger.log_auth_success("user", &source, "password").await;
-    logger.log_auth_failure("user", &source, "password").await;
-    logger.log_connection_new(&source, "ssh");
-    logger.log_connection_closed(&source, "ssh");
+    logger
+        .log_auth_success("user", &source, "password", None)
+        .await;
+    logger
+        .log_auth_failure("user", &source, "password", None)
+        .await;
+    logger.log_connection_new(&source, "ssh", None);
+    logger.log_connection_closed(&source, "ssh", None);
     logger.log_config_reload(5, true, None);
 }
 
@@ -59,7 +79,9 @@ async fn new_logger_creates_parent_directories() {
     let logger = AuditLogger::new(Some(audit_path.clone()), 0, 0, None);
 
     let source: SocketAddr = "1.2.3.4:5678".parse().unwrap();
-    logger.log_auth_success("test", &source, "password").await;
+    logger
+        .log_auth_success("test", &source, "password", None)
+        .await;
 
     sleep(Duration::from_millis(100)).await;
     assert!(audit_path.exists(), "nested directories should be created");
@@ -77,7 +99,9 @@ async fn log_auth_success_writes_correct_json() {
     let logger = AuditLogger::new(Some(audit_path.clone()), 0, 0, None);
 
     let source: SocketAddr = "192.168.1.100:12345".parse().unwrap();
-    logger.log_auth_success("alice", &source, "password").await;
+    logger
+        .log_auth_success("alice", &source, "password", None)
+        .await;
 
     sleep(Duration::from_millis(100)).await;
 
@@ -99,7 +123,9 @@ async fn log_auth_failure_writes_correct_json() {
     let logger = AuditLogger::new(Some(audit_path.clone()), 0, 0, None);
 
     let source: SocketAddr = "10.0.0.1:9999".parse().unwrap();
-    logger.log_auth_failure("attacker", &source, "pubkey").await;
+    logger
+        .log_auth_failure("attacker", &source, "pubkey", None)
+        .await;
 
     sleep(Duration::from_millis(100)).await;
 
@@ -130,6 +156,7 @@ async fn log_proxy_complete_writes_correct_json() {
             500,
             &source,
             Some("93.184.216.34".to_string()),
+            None,
         )
         .await;
 
@@ -157,8 +184,8 @@ async fn log_connection_events_write_correct_json() {
     let logger = AuditLogger::new(Some(audit_path.clone()), 0, 0, None);
 
     let source: SocketAddr = "172.16.0.5:8080".parse().unwrap();
-    logger.log_connection_new(&source, "ssh");
-    logger.log_connection_closed(&source, "ssh");
+    logger.log_connection_new(&source, "ssh", None);
+    logger.log_connection_closed(&source, "ssh", None);
 
     sleep(Duration::from_millis(100)).await;
 
@@ -190,6 +217,7 @@ async fn log_acl_deny_writes_correct_json() {
         "10.0.0.1",
         Some("deny *.evil.com".to_string()),
         "hostname blocked",
+        None,
     );
 
     sleep(Duration::from_millis(100)).await;
@@ -241,7 +269,7 @@ async fn log_quota_exceeded_writes_correct_json() {
 
     let logger = AuditLogger::new(Some(audit_path.clone()), 0, 0, None);
 
-    logger.log_quota_exceeded("alice", "bandwidth", 1_000_000, 500_000);
+    logger.log_quota_exceeded("alice", "bandwidth", 1_000_000, 500_000, None);
 
     sleep(Duration::from_millis(100)).await;
 
@@ -263,7 +291,7 @@ async fn log_session_authenticated_writes_correct_json() {
     let logger = AuditLogger::new(Some(audit_path.clone()), 0, 0, None);
 
     let source: SocketAddr = "10.0.0.1:1234".parse().unwrap();
-    logger.log_session_authenticated("alice", &source, "ssh", "password+totp");
+    logger.log_session_authenticated("alice", &source, "ssh", "password+totp", None);
 
     sleep(Duration::from_millis(100)).await;
 
@@ -284,7 +312,7 @@ async fn log_session_ended_writes_correct_json() {
     let logger = AuditLogger::new(Some(audit_path.clone()), 0, 0, None);
 
     let source: SocketAddr = "10.0.0.1:1234".parse().unwrap();
-    logger.log_session_ended("alice", &source, "ssh", 3600, 1_000_000);
+    logger.log_session_ended("alice", &source, "ssh", 3600, 1_000_000, None);
 
     sleep(Duration::from_millis(100)).await;
 
@@ -305,7 +333,7 @@ async fn log_rate_limit_exceeded_writes_correct_json() {
     let logger = AuditLogger::new(Some(audit_path.clone()), 0, 0, None);
 
     let source: SocketAddr = "10.0.0.1:1234".parse().unwrap();
-    logger.log_rate_limit_exceeded("alice", &source, "per_user");
+    logger.log_rate_limit_exceeded("alice", &source, "per_user", None);
 
     sleep(Duration::from_millis(100)).await;
 
@@ -354,7 +382,7 @@ async fn log_event_accepts_custom_event() {
     let logger = AuditLogger::new(Some(audit_path.clone()), 0, 0, None);
 
     let source: SocketAddr = "172.16.0.5:8080".parse().unwrap();
-    let event = AuditEvent::auth_failure("hacker", &source, "password");
+    let event = AuditEvent::auth_failure("hacker", &source, "password", None);
     logger.log_event(event);
 
     sleep(Duration::from_millis(100)).await;
@@ -379,7 +407,9 @@ async fn dropped_count_stays_zero_under_normal_load() {
     let logger = AuditLogger::new(None, 0, 0, None);
 
     let addr: SocketAddr = "1.2.3.4:5678".parse().unwrap();
-    logger.log_auth_success("test", &addr, "password").await;
+    logger
+        .log_auth_success("test", &addr, "password", None)
+        .await;
 
     // Give the async writer time
     sleep(Duration::from_millis(50)).await;
@@ -395,7 +425,7 @@ async fn noop_logger_dropped_count_increments() {
     // noop logger has capacity 1 and receiver is dropped
     // Send events that will be dropped
     for _ in 0..10 {
-        logger.log_connection_new(&addr, "ssh");
+        logger.log_connection_new(&addr, "ssh", None);
     }
 
     // Some events should have been dropped (channel closed)
@@ -418,20 +448,20 @@ fn critical_events_classified_correctly() {
     let addr: SocketAddr = "1.2.3.4:5678".parse().unwrap();
 
     // Critical events
-    assert!(AuditEvent::auth_failure("u", &addr, "pw").is_critical());
-    assert!(AuditEvent::acl_deny("u", "h", 80, None, "1.2.3.4", None, "r").is_critical());
+    assert!(AuditEvent::auth_failure("u", &addr, "pw", None).is_critical());
+    assert!(AuditEvent::acl_deny("u", "h", 80, None, "1.2.3.4", None, "r", None).is_critical());
     assert!(AuditEvent::config_reload(5, true, None).is_critical());
-    assert!(AuditEvent::quota_exceeded("u", "bw", 100, 50).is_critical());
-    assert!(AuditEvent::rate_limit_exceeded("u", &addr, "per_user").is_critical());
+    assert!(AuditEvent::quota_exceeded("u", "bw", 100, 50, None).is_critical());
+    assert!(AuditEvent::rate_limit_exceeded("u", &addr, "per_user", None).is_critical());
     assert!(AuditEvent::maintenance_toggled(true, "api").is_critical());
 
     // Non-critical events
-    assert!(!AuditEvent::auth_success("u", &addr, "pw").is_critical());
-    assert!(!AuditEvent::connection_new(&addr, "ssh").is_critical());
-    assert!(!AuditEvent::connection_closed(&addr, "ssh").is_critical());
-    assert!(!AuditEvent::proxy_complete("u", "h", 80, 0, 0, 0, &addr, None).is_critical());
-    assert!(!AuditEvent::session_authenticated("u", &addr, "ssh", "pw").is_critical());
-    assert!(!AuditEvent::session_ended("u", &addr, "ssh", 0, 0).is_critical());
+    assert!(!AuditEvent::auth_success("u", &addr, "pw", None).is_critical());
+    assert!(!AuditEvent::connection_new(&addr, "ssh", None).is_critical());
+    assert!(!AuditEvent::connection_closed(&addr, "ssh", None).is_critical());
+    assert!(!AuditEvent::proxy_complete("u", "h", 80, 0, 0, 0, &addr, None, None).is_critical());
+    assert!(!AuditEvent::session_authenticated("u", &addr, "ssh", "pw", None).is_critical());
+    assert!(!AuditEvent::session_ended("u", &addr, "ssh", 0, 0, None).is_critical());
 }
 
 // ===========================================================================
@@ -443,27 +473,27 @@ fn event_type_returns_correct_strings() {
     let addr: SocketAddr = "1.2.3.4:5678".parse().unwrap();
 
     assert_eq!(
-        AuditEvent::auth_success("u", &addr, "pw").event_type(),
+        AuditEvent::auth_success("u", &addr, "pw", None).event_type(),
         "auth.success"
     );
     assert_eq!(
-        AuditEvent::auth_failure("u", &addr, "pw").event_type(),
+        AuditEvent::auth_failure("u", &addr, "pw", None).event_type(),
         "auth.failure"
     );
     assert_eq!(
-        AuditEvent::proxy_complete("u", "h", 80, 0, 0, 0, &addr, None).event_type(),
+        AuditEvent::proxy_complete("u", "h", 80, 0, 0, 0, &addr, None, None).event_type(),
         "proxy.complete"
     );
     assert_eq!(
-        AuditEvent::acl_deny("u", "h", 80, None, "1.2.3.4", None, "r").event_type(),
+        AuditEvent::acl_deny("u", "h", 80, None, "1.2.3.4", None, "r", None).event_type(),
         "acl.deny"
     );
     assert_eq!(
-        AuditEvent::connection_new(&addr, "ssh").event_type(),
+        AuditEvent::connection_new(&addr, "ssh", None).event_type(),
         "connection.new"
     );
     assert_eq!(
-        AuditEvent::connection_closed(&addr, "ssh").event_type(),
+        AuditEvent::connection_closed(&addr, "ssh", None).event_type(),
         "connection.closed"
     );
     assert_eq!(
@@ -471,19 +501,19 @@ fn event_type_returns_correct_strings() {
         "config.reload"
     );
     assert_eq!(
-        AuditEvent::quota_exceeded("u", "bw", 0, 0).event_type(),
+        AuditEvent::quota_exceeded("u", "bw", 0, 0, None).event_type(),
         "quota.exceeded"
     );
     assert_eq!(
-        AuditEvent::session_authenticated("u", &addr, "ssh", "pw").event_type(),
+        AuditEvent::session_authenticated("u", &addr, "ssh", "pw", None).event_type(),
         "session.authenticated"
     );
     assert_eq!(
-        AuditEvent::session_ended("u", &addr, "ssh", 0, 0).event_type(),
+        AuditEvent::session_ended("u", &addr, "ssh", 0, 0, None).event_type(),
         "session.ended"
     );
     assert_eq!(
-        AuditEvent::rate_limit_exceeded("u", &addr, "per_user").event_type(),
+        AuditEvent::rate_limit_exceeded("u", &addr, "per_user", None).event_type(),
         "rate_limit.exceeded"
     );
     assert_eq!(
@@ -505,9 +535,13 @@ async fn multiple_events_written_in_order() {
 
     let source: SocketAddr = "203.0.113.25:9999".parse().unwrap();
 
-    logger.log_auth_success("alice", &source, "password").await;
-    logger.log_auth_failure("bob", &source, "password").await;
-    logger.log_connection_new(&source, "ssh");
+    logger
+        .log_auth_success("alice", &source, "password", None)
+        .await;
+    logger
+        .log_auth_failure("bob", &source, "password", None)
+        .await;
+    logger.log_connection_new(&source, "ssh", None);
     logger.log_config_reload(3, true, None);
 
     sleep(Duration::from_millis(200)).await;
@@ -564,7 +598,9 @@ async fn log_with_ipv6_source() {
     let logger = AuditLogger::new(Some(audit_path.clone()), 0, 0, None);
 
     let source: SocketAddr = "[2001:db8::1]:12345".parse().unwrap();
-    logger.log_auth_success("alice", &source, "password").await;
+    logger
+        .log_auth_success("alice", &source, "password", None)
+        .await;
 
     sleep(Duration::from_millis(100)).await;
 

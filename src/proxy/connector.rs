@@ -258,7 +258,7 @@ pub async fn connect_via_socks5(
         let username = proxy.username.as_deref().ok_or_else(|| {
             anyhow::anyhow!("upstream proxy requires auth but no username configured")
         })?;
-        let password = proxy.password.as_deref().unwrap_or("");
+        let password = proxy.password.as_ref().map(|p| p.as_str()).unwrap_or("");
 
         // RFC 1929: VER(1) + ULEN(1) + UNAME(1-255) + PLEN(1) + PASSWD(1-255)
         let mut auth_req = Vec::with_capacity(3 + username.len() + password.len());

@@ -58,7 +58,6 @@ Core server configuration. **Required section.**
 | `server_id` | string | `"SSH-2.0-sks5_<version>"` | SSH protocol identification string sent to clients. |
 | `banner` | string | `"Welcome to sks5"` | Banner text shown before SSH authentication prompt. |
 | `motd_path` | string? | `null` | Path to a raw-text Message Of The Day file (shown after login). See also `[motd]` for template-based MOTD. |
-| `proxy_protocol` | bool | `false` | Enable HAProxy PROXY protocol v1/v2 on the SSH listener. Only enable behind a PROXY-protocol-aware load balancer. |
 | `allowed_ciphers` | string[] | `[]` | Restrict SSH ciphers. Empty list means all secure ciphers from russh defaults are allowed. Example: `["chacha20-poly1305@openssh.com", "aes256-gcm@openssh.com"]`. |
 | `allowed_kex` | string[] | `[]` | Restrict SSH key exchange algorithms. Empty list means all secure kex algorithms from russh defaults are allowed. |
 | `shutdown_timeout` | u64 | `30` | Graceful shutdown timeout in seconds. Active connections drain during this period before being forcefully closed. |
@@ -279,7 +278,6 @@ User definitions. **At least one user is required.** Each user needs at least on
 | `username` | string | _(required)_ | Unique username. |
 | `password_hash` | string? | `null` | Argon2id password hash. Generate with `sks5 hash-password`. |
 | `authorized_keys` | string[] | `[]` | SSH public keys for key-based authentication, in OpenSSH format. |
-| `allow_forwarding` | bool | `true` | Allow SSH dynamic forwarding (`ssh -D`) and local forwarding (`ssh -L`). |
 | `allow_shell` | bool | `true` | Allow interactive shell access. |
 | `group` | string? | `null` | Group membership. References a `[[groups]]` entry by name. User fields override group defaults. |
 | `role` | string | `"user"` | User role: `"user"` or `"admin"`. Admins see extended info in shell commands like `show status`. |
@@ -376,7 +374,6 @@ Per-user time-based access restrictions.
 |-------|------|---------|-------------|
 | `access_hours` | string? | `null` | Allowed hours in `"HH:MM-HH:MM"` format (e.g., `"08:00-18:00"`). `null` = 24-hour access. |
 | `access_days` | string[] | `[]` | Allowed days of the week. Values: `"mon"`, `"tue"`, `"wed"`, `"thu"`, `"fri"`, `"sat"`, `"sun"`. Empty = all days allowed. |
-| `timezone` | string | `"UTC"` | Timezone for access rules, in IANA format (e.g., `"Europe/Paris"`). |
 
 ---
 
@@ -403,7 +400,6 @@ User groups for shared configuration inheritance. Users reference groups via the
 | `max_bandwidth_kbps` | u64? | `null` | Per-connection bandwidth cap (Kbps). `null` = inherit. |
 | `max_aggregate_bandwidth_kbps` | u64? | `null` | Aggregate bandwidth cap for group members (Kbps). `null` = inherit. |
 | `max_new_connections_per_minute` | u32? | `null` | Rate limit: max new connections per minute. `null` = inherit. |
-| `allow_forwarding` | bool? | `null` | Allow port forwarding. `null` = inherit (default `true`). |
 | `allow_shell` | bool? | `null` | Allow interactive shell. `null` = inherit (default `true`). |
 | `role` | string? | `null` | Default role for group members: `"user"` or `"admin"`. `null` = inherit (default `"user"`). |
 | `colors` | bool? | `null` | ANSI colors in shell. `null` = inherit. |
@@ -489,7 +485,6 @@ Group-level time-based access restrictions. Same structure as `[users.time_acces
 |-------|------|---------|-------------|
 | `access_hours` | string? | `null` | Allowed hours (`"HH:MM-HH:MM"`). `null` = 24h access. |
 | `access_days` | string[] | `[]` | Allowed days. Empty = all days. |
-| `timezone` | string | `"UTC"` | IANA timezone. |
 
 ---
 
@@ -556,7 +551,6 @@ Scheduled maintenance windows. During maintenance, new connections are rejected 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `schedule` | string | _(required)_ | Schedule expression. Format: `"Sun 02:00-04:00"` (day-specific) or `"daily 03:00-04:00"` (every day). |
-| `timezone` | string | `"UTC"` | Timezone for the schedule, in IANA format. |
 | `message` | string | `"Server is under scheduled maintenance. Please try again later."` | Message shown to users who attempt to connect during maintenance. |
 | `disconnect_existing` | bool | `false` | Gracefully disconnect existing connections when maintenance starts. |
 
@@ -573,7 +567,7 @@ user setting > group setting > global default
 When a user-level value is set, it takes precedence. When absent (`null`/`None`), the group-level value is used. When the group-level value is also absent, the global default applies.
 
 This applies to:
-- `allow_forwarding`, `allow_shell`
+- `allow_shell`
 - `max_bandwidth_kbps`, `max_aggregate_bandwidth_kbps`, `max_connections_per_user`
 - `role`, `colors`, `connect_retry`, `connect_retry_delay_ms`, `idle_warning_secs`
 - `auth_methods`
@@ -600,7 +594,6 @@ When running without a config file, the following environment variables are reco
 | `SKS5_SERVER_ID` | string | auto | `server.server_id` |
 | `SKS5_BANNER` | string | `"Welcome to sks5"` | `server.banner` |
 | `SKS5_MOTD_PATH` | string | _(none)_ | `server.motd_path` |
-| `SKS5_PROXY_PROTOCOL` | bool | `false` | `server.proxy_protocol` |
 | `SKS5_ALLOWED_CIPHERS` | CSV | `""` | `server.allowed_ciphers` |
 | `SKS5_ALLOWED_KEX` | CSV | `""` | `server.allowed_kex` |
 | `SKS5_SHUTDOWN_TIMEOUT` | u64 | `30` | `server.shutdown_timeout` |
@@ -720,7 +713,6 @@ When running without a config file, the following environment variables are reco
 | `SKS5_PASSWORD_HASH` | string | _(none)_ | `users[0].password_hash` |
 | `SKS5_PASSWORD_HASH_FILE` | string | _(none)_ | `users[0].password_hash` (read from file) |
 | `SKS5_AUTHORIZED_KEYS` | CSV | `""` | `users[0].authorized_keys` |
-| `SKS5_ALLOW_FORWARDING` | bool | `true` | `users[0].allow_forwarding` |
 | `SKS5_ALLOW_SHELL` | bool | `true` | `users[0].allow_shell` |
 | `SKS5_MAX_NEW_CONNECTIONS_PER_MINUTE` | u32 | `0` | `users[0].max_new_connections_per_minute` |
 | `SKS5_MAX_BANDWIDTH_KBPS` | u64 | `0` | `users[0].max_bandwidth_kbps` |
@@ -750,7 +742,6 @@ Replace `<N>` with 0, 1, 2, etc. Stops at the first missing index.
 | `SKS5_USER_<N>_PASSWORD_HASH` | string | `users[N].password_hash` |
 | `SKS5_USER_<N>_PASSWORD_HASH_FILE` | string | `users[N].password_hash` (from file) |
 | `SKS5_USER_<N>_AUTHORIZED_KEYS` | CSV | `users[N].authorized_keys` |
-| `SKS5_USER_<N>_ALLOW_FORWARDING` | bool | `users[N].allow_forwarding` |
 | `SKS5_USER_<N>_ALLOW_SHELL` | bool | `users[N].allow_shell` |
 | `SKS5_USER_<N>_MAX_NEW_CONNECTIONS_PER_MINUTE` | u32 | `users[N].max_new_connections_per_minute` |
 | `SKS5_USER_<N>_MAX_BANDWIDTH_KBPS` | u64 | `users[N].max_bandwidth_kbps` |

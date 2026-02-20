@@ -68,7 +68,6 @@ fn prompt_new_group(config: &mut AppConfig) -> Result<()> {
         max_bandwidth_kbps: if max_bw > 0 { Some(max_bw) } else { None },
         max_aggregate_bandwidth_kbps: None,
         max_new_connections_per_minute: None,
-        allow_forwarding: None,
         allow_shell: None,
         shell_permissions: None,
         motd: None,
@@ -311,11 +310,7 @@ fn prompt_edit_group(config: &mut AppConfig, idx: usize) -> Result<()> {
                     .allow_empty(true)
                     .interact_text()?;
                 ta.access_hours = if hours.is_empty() { None } else { Some(hours) };
-                ta.timezone = Input::new()
-                    .with_prompt("Timezone")
-                    .default(ta.timezone.clone())
-                    .interact_text()?;
-                if ta.access_hours.is_none() && ta.access_days.is_empty() && ta.timezone == "UTC" {
+                if ta.access_hours.is_none() && ta.access_days.is_empty() {
                     group.time_access = None;
                 }
             }
@@ -364,21 +359,6 @@ fn prompt_edit_group(config: &mut AppConfig, idx: usize) -> Result<()> {
                     })
                     .interact()?;
                 group.allow_shell = match shell {
-                    1 => Some(true),
-                    2 => Some(false),
-                    _ => None,
-                };
-
-                let fwd = Select::new()
-                    .with_prompt("Allow forwarding?")
-                    .items(["(inherit)", "yes", "no"])
-                    .default(match group.allow_forwarding {
-                        None => 0,
-                        Some(true) => 1,
-                        Some(false) => 2,
-                    })
-                    .interact()?;
-                group.allow_forwarding = match fwd {
                     1 => Some(true),
                     2 => Some(false),
                     _ => None,
@@ -689,7 +669,7 @@ pub(crate) fn prompt_maintenance_section(config: &mut AppConfig) -> Result<()> {
         let mut items: Vec<String> = config
             .maintenance_windows
             .iter()
-            .map(|w| format!("  {} ({})", w.schedule, w.timezone))
+            .map(|w| format!("  {}", w.schedule))
             .collect();
         items.push("  + Add window".to_string());
         items.push("  Back".to_string());
@@ -706,10 +686,6 @@ pub(crate) fn prompt_maintenance_section(config: &mut AppConfig) -> Result<()> {
             let schedule: String = Input::new()
                 .with_prompt("Schedule (e.g. 'daily 03:00-04:00' or 'Sun 02:00-04:00')")
                 .interact_text()?;
-            let tz: String = Input::new()
-                .with_prompt("Timezone")
-                .default("UTC".to_string())
-                .interact_text()?;
             let msg: String = Input::new()
                 .with_prompt("Message")
                 .default(
@@ -722,7 +698,6 @@ pub(crate) fn prompt_maintenance_section(config: &mut AppConfig) -> Result<()> {
                 .interact()?;
             config.maintenance_windows.push(MaintenanceWindowConfig {
                 schedule,
-                timezone: tz,
                 message: msg,
                 disconnect_existing: disconnect,
             });

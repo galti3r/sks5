@@ -49,7 +49,6 @@ ban_enabled = false
 [[users]]
 username = "alice"
 password_hash = "{FAKE_HASH}"
-allow_forwarding = true
 allow_shell = true
 "##
     );
@@ -73,7 +72,6 @@ ban_enabled = false
 [[users]]
 username = "alice"
 password_hash = "{FAKE_HASH}"
-allow_forwarding = true
 allow_shell = true
 "##
     );
@@ -96,7 +94,6 @@ ban_enabled = false
 [[users]]
 username = "alice"
 password_hash = "{FAKE_HASH}"
-allow_forwarding = true
 allow_shell = true
 source_ips = ["10.0.0.0/8"]
 "##
@@ -1398,7 +1395,6 @@ ban_enabled = false
 [[users]]
 username = "alice"
 password_hash = "{FAKE_HASH}"
-allow_forwarding = true
 allow_shell = true
 "##
     );
@@ -1441,7 +1437,6 @@ deny = ["evil.com:*"]
 [[users]]
 username = "alice"
 password_hash = "{FAKE_HASH}"
-allow_forwarding = true
 allow_shell = true
 "##
     );
@@ -1482,7 +1477,6 @@ ban_enabled = false
 [[users]]
 username = "alice"
 password_hash = "{FAKE_HASH}"
-allow_forwarding = true
 allow_shell = true
 max_new_connections_per_minute = 100
 "##

@@ -453,7 +453,6 @@ fn build_quick_config(
             server_id: "SSH-2.0-sks5".to_string(),
             banner: "Welcome to sks5".to_string(),
             motd_path: None,
-            proxy_protocol: false,
             allowed_ciphers: Vec::new(),
             allowed_kex: Vec::new(),
             shutdown_timeout: 30,
@@ -482,7 +481,6 @@ fn build_quick_config(
             username,
             password_hash: Some(password_hash),
             authorized_keys: Vec::new(),
-            allow_forwarding: true,
             allow_shell: Some(true),
             max_new_connections_per_minute: 0,
             max_bandwidth_kbps: 0,
@@ -535,7 +533,6 @@ ssh_listen = "{ssh_listen}"
 host_key_path = "host_key"           # auto-generated if absent
 server_id = "SSH-2.0-sks5"
 banner = "Welcome to sks5"
-proxy_protocol = false
 
 [shell]
 hostname = "sks5-proxy"
@@ -578,7 +575,6 @@ denied_countries = []
 username = "{username}"
 password_hash = "{password_hash}"
 authorized_keys = []
-allow_forwarding = true
 allow_shell = true
 max_new_connections_per_minute = 60
 max_bandwidth_kbps = 0

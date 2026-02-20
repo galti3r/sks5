@@ -15,7 +15,7 @@ fn test_parse_valid_url_with_auth() {
     assert_eq!(proxy.host, "proxy.example.com");
     assert_eq!(proxy.port, 1080);
     assert_eq!(proxy.username.as_deref(), Some("user"));
-    assert_eq!(proxy.password.as_deref(), Some("pass"));
+    assert_eq!(proxy.password.as_ref().map(|p| p.as_str()), Some("pass"));
 }
 
 #[test]
@@ -23,7 +23,7 @@ fn test_parse_url_with_encoded_credentials() {
     let proxy =
         ParsedUpstreamProxy::from_url("socks5://us%40er:p%40ss@proxy.example.com:1080").unwrap();
     assert_eq!(proxy.username.as_deref(), Some("us@er"));
-    assert_eq!(proxy.password.as_deref(), Some("p@ss"));
+    assert_eq!(proxy.password.as_ref().map(|p| p.as_str()), Some("p@ss"));
 }
 
 #[test]
@@ -108,7 +108,6 @@ mod resolve_priority {
                 server_id: "SSH-2.0-sks5".to_string(),
                 banner: "test".to_string(),
                 motd_path: None,
-                proxy_protocol: false,
                 allowed_ciphers: Vec::new(),
                 allowed_kex: Vec::new(),
                 shutdown_timeout: 30,

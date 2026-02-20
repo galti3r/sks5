@@ -46,7 +46,6 @@ ssh_listen = "0.0.0.0:2222"
 # HAProxy PROXY protocol v1/v2 support on the SSH listener.
 # Enable only if sks5 is behind a PROXY-protocol-aware load balancer.
 # Default: false
-# proxy_protocol = false
 
 # Restrict SSH ciphers. Empty list = use russh defaults (secure).
 # Default: [] (all secure ciphers allowed)
@@ -546,7 +545,6 @@ enabled = true
 
 # [[groups]]
 # name = "developers"                     # REQUIRED: group name
-# allow_forwarding = true                 # Default: true (inherited from global)
 # allow_shell = true                      # Default: true
 # max_bandwidth_kbps = 10240              # 10 Mbps per connection. Default: 0 (unlimited)
 # max_aggregate_bandwidth_kbps = 51200    # 50 Mbps total for group. Default: 0 (unlimited)
@@ -608,11 +606,9 @@ enabled = true
 # [groups.time_access]
 # access_hours = "06:00-22:00"            # HH:MM-HH:MM. Absent = 24h access
 # access_days = ["mon", "tue", "wed", "thu", "fri", "sat"]  # Empty = all days
-# timezone = "UTC"                        # IANA timezone. Default: "UTC"
 
 # [[groups]]
 # name = "admins"
-# allow_forwarding = true
 # allow_shell = true
 # role = "admin"
 
@@ -669,13 +665,11 @@ enabled = true
 
 # [[maintenance_windows]]
 # schedule = "Sun 02:00-04:00"            # REQUIRED: "Sun 02:00-04:00", "daily 03:00-04:00"
-# timezone = "UTC"                        # Default: "UTC"
 # message = "Server is under scheduled maintenance. Please try again later."  # Default message
 # disconnect_existing = false             # Close active connections. Default: false
 
 # [[maintenance_windows]]
 # schedule = "daily 04:00-04:30"
-# timezone = "Europe/Paris"
 # message = "Daily maintenance window. Back soon!"
 # disconnect_existing = true
 
@@ -723,7 +717,6 @@ password_hash = "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHQ$somehash"
 
 # Allow SSH dynamic forwarding (ssh -D) and local forwarding (ssh -L).
 # Default: true
-# allow_forwarding = true
 
 # Allow interactive shell access (ssh user@host).
 # Default: true
@@ -875,7 +868,6 @@ deny = ["169.254.169.254:*"]  # Block AWS/cloud metadata endpoint
 # [users.time_access]
 # access_hours = "08:00-18:00"          # HH:MM-HH:MM. Absent = 24h access
 # access_days = ["mon", "tue", "wed", "thu", "fri"]  # Empty = all days
-# timezone = "UTC"                      # IANA timezone. Default: "UTC"
 
 
 # -----------------------------------------------------------------------------
@@ -885,7 +877,6 @@ deny = ["169.254.169.254:*"]  # Block AWS/cloud metadata endpoint
 username = "bob"
 password_hash = "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHQ$somehash"
 authorized_keys = []
-allow_forwarding = true
 allow_shell = false                     # No shell access
 max_new_connections_per_minute = 30     # Rate-limited
 max_bandwidth_kbps = 1024              # 1 Mbps cap per connection
@@ -911,7 +902,6 @@ username = "charlie"
 authorized_keys = [
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample... charlie@workstation",
 ]
-allow_forwarding = true
 allow_shell = true
 
 [users.acl]
@@ -938,7 +928,6 @@ allow = [
 [[users]]
 username = "dave"
 password_hash = "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHQ$somehash"
-allow_forwarding = true
 allow_shell = true
 totp_enabled = true
 totp_secret = "JBSWY3DPEHPK3PXP"
@@ -956,7 +945,6 @@ deny = ["169.254.169.254:*"]
 # password_hash = "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHQ$somehash"
 # group = "developers"                  # Inherits group settings
 # role = "user"
-# allow_forwarding = true
 # allow_shell = true
 # expires_at = "2026-06-30T23:59:59Z"
 # idle_warning_secs = 120              # Warn 2 minutes before idle disconnect
@@ -972,7 +960,6 @@ deny = ["169.254.169.254:*"]
 # [users.time_access]
 # access_hours = "08:00-18:00"
 # access_days = ["mon", "tue", "wed", "thu", "fri"]
-# timezone = "Europe/Paris"
 #
 # [users.shell_permissions]
 # show_connections = true
@@ -994,7 +981,6 @@ deny = ["169.254.169.254:*"]
 # [[users]]
 # username = "readonly"
 # password_hash = "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHQ$somehash"
-# allow_forwarding = false
 # allow_shell = true
 # max_new_connections_per_minute = 5
 #

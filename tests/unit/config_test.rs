@@ -49,7 +49,6 @@ password_hash = "{FAKE_HASH}"
     );
     let cfg = config::parse_config(&toml).unwrap();
     let user = &cfg.users[0];
-    assert!(user.allow_forwarding);
     assert_eq!(user.allow_shell, None);
     assert_eq!(user.max_new_connections_per_minute, 0);
     assert_eq!(user.max_bandwidth_kbps, 0);

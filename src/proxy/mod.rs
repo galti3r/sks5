@@ -263,6 +263,7 @@ impl ProxyEngine {
                 source_ip,
                 pre_decision.matched_rule,
                 "hostname pre-check",
+                None,
             );
             anyhow::bail!("ACL denied: {}:{}", host, port);
         }
@@ -312,6 +313,7 @@ impl ProxyEngine {
                     source_ip,
                     post_decision.matched_rule,
                     "post-check",
+                    None,
                 );
                 anyhow::bail!("ACL denied: {}:{}", host, port);
             }

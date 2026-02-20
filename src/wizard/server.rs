@@ -248,11 +248,5 @@ fn prompt_advanced_server(config: &mut AppConfig) -> Result<()> {
         config.server.socks5_tls_key = None;
     }
 
-    let enable_proxy_protocol = Confirm::new()
-        .with_prompt("Enable PROXY protocol?")
-        .default(config.server.proxy_protocol)
-        .interact()?;
-    config.server.proxy_protocol = enable_proxy_protocol;
-
     Ok(())
 }

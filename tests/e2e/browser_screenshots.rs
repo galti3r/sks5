@@ -154,13 +154,11 @@ deny = ["*.internal:*", "10.0.0.0/8:*"]
 [[groups]]
 name = "developers"
 max_bandwidth_kbps = 10240
-allow_forwarding = true
 allow_shell = true
 
 [[users]]
 username = "alice"
 password_hash = "{password_hash}"
-allow_forwarding = true
 allow_shell = true
 group = "developers"
 
@@ -174,7 +172,6 @@ monthly_connection_limit = 1000
 [[users]]
 username = "bob"
 password_hash = "{password_hash}"
-allow_forwarding = true
 allow_shell = false
 group = "developers"
 
@@ -187,7 +184,6 @@ monthly_connection_limit = 500
 [[users]]
 username = "charlie"
 password_hash = "{password_hash}"
-allow_forwarding = true
 allow_shell = true
 
 [users.quotas]
@@ -257,10 +253,15 @@ async fn populate_screenshot_data(server: &TestApiServerWithState) -> Vec<Arc<Li
     let charlie_addr: SocketAddr = "192.168.1.10:61200".parse().unwrap();
     let attacker_addr: SocketAddr = "192.168.99.1:12345".parse().unwrap();
 
-    audit.log_event(AuditEvent::auth_success("alice", &alice_addr, "publickey"));
-    audit.log_event(AuditEvent::auth_success("bob", &bob_addr, "password"));
-    audit.log_event(AuditEvent::connection_new(&alice_addr, "ssh"));
-    audit.log_event(AuditEvent::connection_new(&bob_addr, "socks5"));
+    audit.log_event(AuditEvent::auth_success(
+        "alice",
+        &alice_addr,
+        "publickey",
+        None,
+    ));
+    audit.log_event(AuditEvent::auth_success("bob", &bob_addr, "password", None));
+    audit.log_event(AuditEvent::connection_new(&alice_addr, "ssh", None));
+    audit.log_event(AuditEvent::connection_new(&bob_addr, "socks5", None));
     audit.log_event(AuditEvent::acl_deny(
         "charlie",
         "blocked.internal",
@@ -269,11 +270,13 @@ async fn populate_screenshot_data(server: &TestApiServerWithState) -> Vec<Arc<Li
         &charlie_addr.ip().to_string(),
         Some("*.internal:*".to_string()),
         "ACL deny rule matched",
+        None,
     ));
     audit.log_event(AuditEvent::auth_failure(
         "admin",
         &attacker_addr,
         "password",
+        None,
     ));
 
     // --- Ban an IP ---

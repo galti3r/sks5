@@ -286,7 +286,6 @@ level = "error"
 [[users]]
 username = "testuser"
 password_hash = "$argon2id$v=19$m=19456,t=2,p=1$AAAAAAAAAAAAAAAAAAAAAA$+gVb4WOMEuMQxSgOBapKnZaHMIDjQJF3Tv7RCyKp9Bo"
-allow_forwarding = true
 allow_shell = true
 "##
     );

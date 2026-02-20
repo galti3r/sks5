@@ -13,7 +13,7 @@ async fn test_event_written_to_file() {
 
     let source: SocketAddr = "192.168.1.100:12345".parse().unwrap();
     logger
-        .log_auth_success("testuser", &source, "password")
+        .log_auth_success("testuser", &source, "password", None)
         .await;
 
     // Give the async task time to write
@@ -42,10 +42,24 @@ async fn test_logger_with_none_path_doesnt_panic() {
     let source: SocketAddr = "10.0.0.1:54321".parse().unwrap();
 
     // Should not panic
-    logger.log_auth_success("user1", &source, "pubkey").await;
-    logger.log_auth_failure("user2", &source, "password").await;
     logger
-        .log_proxy_complete("user1", "example.com", 443, 512, 512, 100, &source, None)
+        .log_auth_success("user1", &source, "pubkey", None)
+        .await;
+    logger
+        .log_auth_failure("user2", &source, "password", None)
+        .await;
+    logger
+        .log_proxy_complete(
+            "user1",
+            "example.com",
+            443,
+            512,
+            512,
+            100,
+            &source,
+            None,
+            None,
+        )
         .await;
 
     // Give async task time to process
@@ -64,8 +78,12 @@ async fn test_multiple_events_written_in_order() {
     let source: SocketAddr = "203.0.113.25:9999".parse().unwrap();
 
     // Log multiple events
-    logger.log_auth_success("alice", &source, "password").await;
-    logger.log_auth_failure("bob", &source, "password").await;
+    logger
+        .log_auth_success("alice", &source, "password", None)
+        .await;
+    logger
+        .log_auth_failure("bob", &source, "password", None)
+        .await;
     logger
         .log_proxy_complete(
             "alice",
@@ -76,6 +94,7 @@ async fn test_multiple_events_written_in_order() {
             200,
             &source,
             Some("93.184.216.34".to_string()),
+            None,
         )
         .await;
 
@@ -114,7 +133,7 @@ async fn test_custom_event_via_log_event() {
 
     // Create a custom event directly
     let source: SocketAddr = "172.16.0.5:8080".parse().unwrap();
-    let event = AuditEvent::auth_failure("hacker", &source, "password");
+    let event = AuditEvent::auth_failure("hacker", &source, "password", None);
 
     logger.log_event(event);
 
@@ -142,7 +161,7 @@ async fn test_concurrent_logging() {
         let src = source;
         let handle = tokio::spawn(async move {
             logger_clone
-                .log_auth_success(&format!("user{}", i), &src, "password")
+                .log_auth_success(&format!("user{}", i), &src, "password", None)
                 .await;
         });
         handles.push(handle);
@@ -156,7 +175,7 @@ async fn test_concurrent_logging() {
     // Also log from original logger
     for i in 10..20 {
         logger
-            .log_auth_success(&format!("user{}", i), &source, "password")
+            .log_auth_success(&format!("user{}", i), &source, "password", None)
             .await;
     }
 

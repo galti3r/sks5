@@ -31,7 +31,6 @@ ban_duration = 600
 [[users]]
 username = "alice"
 password_hash = "{password_hash}"
-allow_forwarding = true
 allow_shell = true
 "##
     );
@@ -277,7 +276,6 @@ ban_duration = 600
 [[users]]
 username = "alice"
 password_hash = "{hash}"
-allow_forwarding = true
 allow_shell = true
 "##
     );
@@ -423,7 +421,6 @@ ban_enabled = false
 [[users]]
 username = "{long_user}"
 password_hash = "{hash}"
-allow_forwarding = true
 allow_shell = true
 "##
     );

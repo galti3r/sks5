@@ -227,7 +227,6 @@ Groups allow shared configuration inheritance. Users reference groups by name:
 [[groups]]
 name = "developers"
 max_bandwidth_kbps = 10240  # 10 Mbps
-allow_forwarding = true
 allow_shell = true
 
 [groups.acl]
@@ -311,7 +310,6 @@ bandwidth_per_hour_bytes = 536870912  # 512 MB/hour rolling
 [users.time_access]
 access_hours = "08:00-18:00"
 access_days = ["mon", "tue", "wed", "thu", "fri"]
-timezone = "Europe/Paris"
 ```
 
 Server-level rate limiting in `[limits]`:

@@ -521,7 +521,6 @@ ssh_listen = "0.0.0.0:2222"
 name = "developers"
 max_connections_per_user = 10
 max_bandwidth_kbps = 5000
-allow_forwarding = true
 allow_shell = true
 
 [groups.acl]
@@ -557,7 +556,6 @@ ssh_listen = "0.0.0.0:2222"
 
 [[maintenance_windows]]
 schedule = "Sun 02:00-04:00"
-timezone = "UTC"
 message = "Weekly maintenance"
 disconnect_existing = true
 

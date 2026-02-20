@@ -8,7 +8,6 @@ fn user_with_source_ips(ips: &[&str]) -> User {
         username: "test".to_string(),
         password_hash: Some("argon2id-fake".to_string()),
         authorized_keys: vec![],
-        allow_forwarding: true,
         allow_shell: Some(true),
         max_new_connections_per_minute: 60,
         max_bandwidth_kbps: 0,

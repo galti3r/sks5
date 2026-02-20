@@ -36,7 +36,6 @@ level = "debug"
 [[users]]
 username = "testuser"
 password_hash = "{password_hash}"
-allow_forwarding = true
 allow_shell = true
 "##
     );
@@ -117,7 +116,6 @@ level = "debug"
 [[users]]
 username = "testuser"
 password_hash = "{password_hash}"
-allow_forwarding = true
 allow_shell = true
 "##
     );
@@ -200,7 +198,6 @@ level = "debug"
 [[users]]
 username = "testuser"
 password_hash = "{password_hash}"
-allow_forwarding = true
 allow_shell = true
 "##
     );
