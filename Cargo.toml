@@ -208,7 +208,7 @@ password-hash = "0.5.0"
 ipnet = { version = "2.10.1", features = ["serde"] }
 
 # Error handling
-anyhow = "1.0.94"
+anyhow = "1.0.102"
 thiserror = "2.0.9"
 
 # Concurrency
