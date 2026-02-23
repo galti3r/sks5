@@ -251,7 +251,7 @@ percent-encoding = "2.3"
 zeroize = { version = "1.8", features = ["derive"] }
 
 # Date/time
-chrono = { version = "0.4.39", features = ["serde"] }
+chrono = { version = "0.4.44", features = ["serde"] }
 
 # Async cancellation
 tokio-util = "0.7"
