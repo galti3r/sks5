@@ -184,7 +184,7 @@ ssh-key = { version = "0.6.7", features = ["ed25519", "rsa", "std"] }
 tokio = { version = "1.42.0", features = ["full"] }
 
 # CLI
-clap = { version = "4.5.58", features = ["derive", "env"] }
+clap = { version = "4.5.60", features = ["derive", "env"] }
 clap_complete = "4.5"
 clap_mangen = "0.2"
 
