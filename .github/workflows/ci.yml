@@ -644,7 +644,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Download x86_64-gnu artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: sks5-x86_64-linux-gnu.tar.gz
           path: /tmp/artifacts
@@ -764,7 +764,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Download release artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           path: artifacts/
           pattern: '{sks5-*,sbom,completions,manpage}'
@@ -862,7 +862,7 @@ jobs:
           - archive: sks5-aarch64-linux-musl.tar.gz
     steps:
       - name: Download artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: ${{ matrix.archive }}
 
@@ -890,13 +890,13 @@ jobs:
 
       # --- Always: download pre-built musl binaries from cross-build ---
       - name: Download amd64 musl artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: sks5-x86_64-linux-musl.tar.gz
           path: /tmp/artifacts/amd64
 
       - name: Download arm64 musl artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: sks5-aarch64-linux-musl.tar.gz
           path: /tmp/artifacts/arm64
@@ -1093,13 +1093,13 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Download amd64 musl artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: sks5-x86_64-linux-musl.tar.gz
           path: /tmp/artifacts/amd64
 
       - name: Download arm64 musl artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: sks5-aarch64-linux-musl.tar.gz
           path: /tmp/artifacts/arm64
@@ -1394,28 +1394,28 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Download screenshots artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: dashboard-screenshots
           path: _site/screenshots
         continue-on-error: true
 
       - name: Download demo GIF artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: demo-gif
           path: _site
         continue-on-error: true
 
       - name: Download wizard GIF artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: wizard-gif
           path: _site
         continue-on-error: true
 
       - name: Download wizard-interactive GIF artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: wizard-interactive-gif
           path: _site
