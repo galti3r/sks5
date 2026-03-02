@@ -1005,7 +1005,7 @@ jobs:
           restore-keys: trivy-db-
 
       - name: Scan alpine image (Trivy)
-        uses: aquasecurity/trivy-action@0.34.0
+        uses: aquasecurity/trivy-action@0.34.2
         with:
           image-ref: sks5:alpine-scan
           severity: CRITICAL,HIGH,MEDIUM
@@ -1016,7 +1016,7 @@ jobs:
           trivyignores: .trivyignore
 
       - name: Scan scratch image (Trivy)
-        uses: aquasecurity/trivy-action@0.34.0
+        uses: aquasecurity/trivy-action@0.34.2
         with:
           image-ref: sks5:scratch-scan
           severity: CRITICAL,HIGH,MEDIUM
