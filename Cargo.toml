@@ -181,7 +181,7 @@ russh = "0.57"
 ssh-key = { version = "0.6.7", features = ["ed25519", "rsa", "std"] }
 
 # Async runtime
-tokio = { version = "1.42.0", features = ["full"] }
+tokio = { version = "1.50.0", features = ["full"] }
 
 # CLI
 clap = { version = "4.5.58", features = ["derive", "env"] }
